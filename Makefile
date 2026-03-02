@@ -20,10 +20,17 @@ test-coverage:
 deps:
 	go install honnef.co/go/tools/cmd/staticcheck@latest
 
-check: fmt vet staticcheck
+check: fmt
+	@echo "==> go vet"
+	go vet ./...
+	@echo "==> staticcheck"
+	go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 
-check-nofix: fmt-nofix vet staticcheck
-check-ci: fmt-check vet staticcheck
+check-nofix: fmt-nofix
+	@echo "==> go vet"
+	go vet ./...
+	@echo "==> staticcheck"
+	go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 
 fmt:
 	@echo "==> gofmt"
@@ -34,11 +41,3 @@ fmt-nofix:
 	@test -z "$$(gofmt -l .)" || (gofmt -l . && echo "above files are not formatted" && exit 1)
 
 fmt-check: fmt-nofix
-
-vet:
-	@echo "==> go vet"
-	go vet ./...
-
-staticcheck:
-	@echo "==> staticcheck"
-	go run honnef.co/go/tools/cmd/staticcheck@latest ./...
