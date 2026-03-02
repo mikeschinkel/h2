@@ -23,7 +23,8 @@ func newRoleCmd() *cobra.Command {
 
 	cmd.AddCommand(newRoleListCmd())
 	cmd.AddCommand(newRoleShowCmd())
-	cmd.AddCommand(newRoleInitCmd())
+	cmd.AddCommand(newRoleCreateCmd())
+	cmd.AddCommand(newRoleUpdateCmd())
 	cmd.AddCommand(newRoleCheckCmd())
 	return cmd
 }
@@ -225,13 +226,28 @@ func resolveRolePathForDir(dir, roleName string) (string, bool) {
 	return "", false
 }
 
-func newRoleInitCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "init <name>",
+func newRoleCreateCmd() *cobra.Command {
+	var style string
+	var templateName string
+
+	cmd := &cobra.Command{
+		Use:   "create <name>",
 		Short: "Create a new role file with defaults",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path, err := createOrUpdateRole(config.RolesDir(), args[0], "", true, false, false, cmd.OutOrStdout())
+			name := strings.TrimSpace(args[0])
+			if name == "" {
+				return fmt.Errorf("role name is required")
+			}
+			resolvedStyle, err := resolveInitStyle(style)
+			if err != nil {
+				return err
+			}
+			resolvedTemplate, err := resolveRoleTemplateName(templateName, resolvedStyle)
+			if err != nil {
+				return err
+			}
+			path, err := createOrUpdateRole(config.RolesDir(), name, resolvedTemplate, resolvedStyle, true, false, false, cmd.OutOrStdout())
 			if err != nil {
 				return err
 			}
@@ -239,6 +255,49 @@ func newRoleInitCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&style, "style", initStyleOpinionated, "Role style: minimal, opinionated")
+	cmd.Flags().StringVar(&templateName, "template", "default", "Built-in role template name (e.g. default, concierge)")
+	return cmd
+}
+
+func newRoleUpdateCmd() *cobra.Command {
+	var style string
+	var templateName string
+
+	cmd := &cobra.Command{
+		Use:   "update <name>",
+		Short: "Update a role file with generated defaults",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := strings.TrimSpace(args[0])
+			if name == "" {
+				return fmt.Errorf("role name is required")
+			}
+			if _, ok := resolveRolePathForDir(config.RolesDir(), name); !ok {
+				return fmt.Errorf("role %q not found", name)
+			}
+
+			resolvedStyle, err := resolveInitStyle(style)
+			if err != nil {
+				return err
+			}
+			resolvedTemplate, err := resolveRoleTemplateName(templateName, resolvedStyle)
+			if err != nil {
+				return err
+			}
+
+			path, err := createOrUpdateRole(config.RolesDir(), name, resolvedTemplate, resolvedStyle, false, true, false, cmd.OutOrStdout())
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Updated %s\n", path)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&style, "style", initStyleOpinionated, "Role style: minimal, opinionated")
+	cmd.Flags().StringVar(&templateName, "template", "default", "Built-in role template name (e.g. default, concierge)")
+	return cmd
 }
 
 func newRoleCheckCmd() *cobra.Command {
@@ -277,22 +336,29 @@ func newRoleCheckCmd() *cobra.Command {
 	}
 }
 
+func resolveRoleTemplateName(templateName, style string) (string, error) {
+	name := strings.TrimSpace(templateName)
+	if name == "" {
+		name = "default"
+	}
+	available := config.RoleTemplateNamesWithStyle(style)
+	for _, candidate := range available {
+		if candidate == name {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("unknown --template %q for style %q; valid: %s", name, style, strings.Join(available, ", "))
+}
+
 // createOrUpdateRole writes a role template file.
-// - requireNew=true: fail if role already exists (role init semantics)
+// - requireNew=true: fail if role already exists (role create semantics)
 // - requireNew=false: upsert mode; overwrite only when force=true
-// - style="": use default style template selection (RoleTemplate)
-// - style!= "": use style-specific template selection (RoleTemplateWithStyle)
-func createOrUpdateRole(rolesDir, name, style string, requireNew, force, announce bool, out io.Writer) (string, error) {
+func createOrUpdateRole(rolesDir, name, templateName, style string, requireNew, force, announce bool, out io.Writer) (string, error) {
 	if err := os.MkdirAll(rolesDir, 0o755); err != nil {
 		return "", fmt.Errorf("create roles dir: %w", err)
 	}
 
-	var content string
-	if style == "" {
-		content = config.RoleTemplate(name)
-	} else {
-		content = config.RoleTemplateWithStyle(name, style)
-	}
+	content := config.RoleTemplateWithStyle(templateName, style)
 
 	ext := config.RoleFileExtension(content)
 	path := filepath.Join(rolesDir, name+ext)

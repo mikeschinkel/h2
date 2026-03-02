@@ -139,13 +139,13 @@ func setupRoleTestH2Dir(t *testing.T) string {
 	return h2Dir
 }
 
-func TestRoleInitCmd_GeneratesTemplateFile(t *testing.T) {
+func TestRoleCreateCmd_GeneratesTemplateFile(t *testing.T) {
 	setupRoleTestH2Dir(t)
 
-	cmd := newRoleInitCmd()
+	cmd := newRoleCreateCmd()
 	cmd.SetArgs([]string{"default"})
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("role init failed: %v", err)
+		t.Fatalf("role create failed: %v", err)
 	}
 
 	// The generated file should contain template syntax, not resolved values.
@@ -166,17 +166,17 @@ func TestRoleInitCmd_GeneratesTemplateFile(t *testing.T) {
 	}
 }
 
-func TestRoleInitCmd_ConciergeGeneratesTemplateFile(t *testing.T) {
+func TestRoleCreateCmd_ConciergeGeneratesTemplateFile(t *testing.T) {
 	setupRoleTestH2Dir(t)
 
-	cmd := newRoleInitCmd()
-	cmd.SetArgs([]string{"concierge"})
+	cmd := newRoleCreateCmd()
+	cmd.SetArgs([]string{"reviewer", "--template", "concierge"})
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("role init concierge failed: %v", err)
+		t.Fatalf("role create concierge failed: %v", err)
 	}
 
 	h2Dir := config.ConfigDir()
-	path := findRoleFile(t, filepath.Join(h2Dir, "roles"), "concierge")
+	path := findRoleFile(t, filepath.Join(h2Dir, "roles"), "reviewer")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read generated role: %v", err)
@@ -191,7 +191,21 @@ func TestRoleInitCmd_ConciergeGeneratesTemplateFile(t *testing.T) {
 	}
 }
 
-func TestRoleInitCmd_RefusesOverwrite(t *testing.T) {
+func TestRoleCreateCmd_InvalidTemplate(t *testing.T) {
+	setupRoleTestH2Dir(t)
+
+	cmd := newRoleCreateCmd()
+	cmd.SetArgs([]string{"worker", "--template", "not-a-template"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for invalid template")
+	}
+	if !strings.Contains(err.Error(), `unknown --template "not-a-template"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRoleCreateCmd_RefusesOverwrite(t *testing.T) {
 	h2Dir := setupRoleTestH2Dir(t)
 
 	// Create a role file first.
@@ -200,7 +214,7 @@ func TestRoleInitCmd_RefusesOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := newRoleInitCmd()
+	cmd := newRoleCreateCmd()
 	cmd.SetArgs([]string{"default"})
 	err := cmd.Execute()
 	if err == nil {
@@ -208,13 +222,79 @@ func TestRoleInitCmd_RefusesOverwrite(t *testing.T) {
 	}
 }
 
-func TestRoleInitThenList_ShowsRole(t *testing.T) {
+func TestRoleUpdateCmd_OverwritesExistingRole(t *testing.T) {
+	h2Dir := setupRoleTestH2Dir(t)
+
+	rolePath := filepath.Join(h2Dir, "roles", "default.yaml")
+	if err := os.WriteFile(rolePath, []byte("role_name: default\ndescription: stale\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	output := captureStdout(func() {
+		cmd := newRoleUpdateCmd()
+		cmd.SetArgs([]string{"default"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("role update failed: %v", err)
+		}
+	})
+
+	updatedPath := findRoleFile(t, filepath.Join(h2Dir, "roles"), "default")
+	data, err := os.ReadFile(updatedPath)
+	if err != nil {
+		t.Fatalf("read updated role: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "{{ .RoleName }}") {
+		t.Fatalf("updated role should contain template syntax, got:\n%s", content)
+	}
+	if strings.Contains(content, "description: stale") {
+		t.Fatalf("updated role should not keep stale content, got:\n%s", content)
+	}
+	if !strings.Contains(output, "Updated ") {
+		t.Fatalf("expected update output, got: %q", output)
+	}
+}
+
+func TestRoleUpdateCmd_NotFound(t *testing.T) {
 	setupRoleTestH2Dir(t)
 
-	cmd := newRoleInitCmd()
+	cmd := newRoleUpdateCmd()
+	cmd.SetArgs([]string{"missing"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when role does not exist")
+	}
+	if !strings.Contains(err.Error(), `role "missing" not found`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRoleUpdateCmd_InvalidTemplate(t *testing.T) {
+	h2Dir := setupRoleTestH2Dir(t)
+
+	rolePath := filepath.Join(h2Dir, "roles", "default.yaml")
+	if err := os.WriteFile(rolePath, []byte("role_name: default\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newRoleUpdateCmd()
+	cmd.SetArgs([]string{"default", "--template", "not-a-template"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for invalid template")
+	}
+	if !strings.Contains(err.Error(), `unknown --template "not-a-template"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRoleCreateThenList_ShowsRole(t *testing.T) {
+	setupRoleTestH2Dir(t)
+
+	cmd := newRoleCreateCmd()
 	cmd.SetArgs([]string{"default"})
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("role init failed: %v", err)
+		t.Fatalf("role create failed: %v", err)
 	}
 
 	roles, err := config.ListRoles()

@@ -37,8 +37,7 @@ var expectedRootDirFiles = map[string]bool{
 func newInitCmd() *cobra.Command {
 	var global bool
 	var prefix string
-	var generate string
-	var force bool
+	var updateConfig bool
 	var style string
 
 	cmd := &cobra.Command{
@@ -48,13 +47,8 @@ func newInitCmd() *cobra.Command {
 
 Use --global to initialize ~/.h2/, or pass a directory path.
 
-Use --generate to regenerate specific config files in an existing h2 directory:
-  h2 init <path> --generate role          # regenerate the default role file
-  h2 init <path> --generate profile       # regenerate default profile files
-  h2 init <path> --generate config        # regenerate config.yaml
-  h2 init <path> --generate all           # regenerate all generated files
-
-Use --force with --generate to overwrite existing files.`,
+Use --update-config to refresh generated default config files in an existing
+h2 directory to match the current h2 binary's init output.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !global && len(args) == 0 {
@@ -84,8 +78,8 @@ Use --force with --generate to overwrite existing files.`,
 				return err
 			}
 
-			if generate != "" {
-				return runGenerate(abs, generate, resolvedStyle, force, out)
+			if updateConfig {
+				return runUpdateConfig(abs, resolvedStyle, out)
 			}
 
 			return runFullInit(cmd, abs, prefix, resolvedStyle, out)
@@ -94,8 +88,7 @@ Use --force with --generate to overwrite existing files.`,
 
 	cmd.Flags().BoolVar(&global, "global", false, "Initialize ~/.h2/ as the h2 directory")
 	cmd.Flags().StringVar(&prefix, "prefix", "", "Custom prefix for this h2 directory in the routes registry")
-	cmd.Flags().StringVar(&generate, "generate", "", "Regenerate specific config: role, profile, config, all")
-	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing files when using --generate")
+	cmd.Flags().BoolVar(&updateConfig, "update-config", false, "Refresh init-managed default config in an existing h2 directory")
 	cmd.Flags().StringVar(&style, "style", initStyleOpinionated, "Generation style: minimal, opinionated")
 	return cmd
 }
@@ -190,7 +183,7 @@ func runFullInit(cmd *cobra.Command, abs, prefix, style string, out io.Writer) e
 	}
 
 	// Create the default role.
-	rolePath, err := createOrUpdateRole(filepath.Join(abs, "roles"), "default", style, false, true, true, out)
+	rolePath, err := createOrUpdateRole(filepath.Join(abs, "roles"), "default", "default", style, false, true, true, out)
 	if err != nil {
 		return fmt.Errorf("create default role: %w", err)
 	}
@@ -201,39 +194,18 @@ func runFullInit(cmd *cobra.Command, abs, prefix, style string, out io.Writer) e
 	return nil
 }
 
-// runGenerate regenerates specific config files in an existing h2 directory.
-func runGenerate(abs, what, style string, force bool, out io.Writer) error {
+// runUpdateConfig refreshes init-managed default config files in an existing h2 directory.
+func runUpdateConfig(abs, style string, out io.Writer) error {
 	if !config.IsH2Dir(abs) {
-		return fmt.Errorf("%s is not an h2 directory (--generate requires an existing h2 dir)", abs)
+		return fmt.Errorf("%s is not an h2 directory (--update-config requires an existing h2 dir)", abs)
 	}
-
-	switch what {
-	case "role":
-		return generateDefaultRole(abs, style, force, out)
-	case "profile":
-		return generateDefaultProfile(abs, style, force, out)
-	// Legacy aliases kept for compatibility; prefer role/profile.
-	case "roles":
-		return generateRoles(abs, style, force, out)
-	case "instructions":
-		return generateInstructions(abs, style, force, out)
-	case "skills":
-		return generateSkills(abs, style, force, out)
-	case "harness-config":
-		return generateHarnessPolicyFiles(abs, style, force, out)
-	case "config":
-		return generateConfig(abs, style, force, out)
-	case "all":
-		if err := generateConfig(abs, style, force, out); err != nil {
-			return err
-		}
-		if err := generateDefaultProfile(abs, style, force, out); err != nil {
-			return err
-		}
-		return generateRoles(abs, style, force, out)
-	default:
-		return fmt.Errorf("unknown --generate type %q; valid: role, profile, config, all", what)
+	if err := generateConfig(abs, style, true, out); err != nil {
+		return err
 	}
+	if err := generateDefaultProfile(abs, style, true, out); err != nil {
+		return err
+	}
+	return generateDefaultRole(abs, style, true, out)
 }
 
 func generateDefaultProfile(abs, style string, force bool, out io.Writer) error {
@@ -257,7 +229,7 @@ func generateDefaultProfile(abs, style string, force bool, out io.Writer) error 
 }
 
 func generateDefaultRole(abs, style string, force bool, out io.Writer) error {
-	_, err := createOrUpdateRole(filepath.Join(abs, "roles"), "default", style, false, force, true, out)
+	_, err := createOrUpdateRole(filepath.Join(abs, "roles"), "default", "default", style, false, force, true, out)
 	return err
 }
 

@@ -149,10 +149,10 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 				if err != nil {
 					if errors.Is(err, os.ErrNotExist) {
 						if roleName == "concierge" {
-							return fmt.Errorf("concierge role not found; create one with: h2 role init concierge")
+							return fmt.Errorf("concierge role not found; create one with: h2 role create concierge --template concierge")
 						}
 						if roleName == "default" {
-							return fmt.Errorf("no default role found; create one with 'h2 role init default' or specify --role, --agent-type, or --command")
+							return fmt.Errorf("no default role found; create one with 'h2 role create default' or specify --role, --agent-type, or --command")
 						}
 					}
 					return fmt.Errorf("load role %q: %w", roleName, err)
