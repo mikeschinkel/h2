@@ -24,7 +24,7 @@ const (
 func newProfileCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "profile",
-		Short: "Manage account profiles",
+		Short: "Manage profiles",
 	}
 	cmd.AddCommand(newProfileCreateCmd())
 	cmd.AddCommand(newProfileResetCmd())
@@ -42,7 +42,7 @@ func newProfileResetCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "reset <name>",
-		Short: "Reset an account profile to generated defaults",
+		Short: "Reset an profile to generated defaults",
 		Long: `Reset profile content to h2-generated defaults.
 
 By default, reset updates instructions, managed skills, and settings, while
@@ -80,7 +80,7 @@ skill files and leaves user-added skills untouched.`,
 func newProfileListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List account profiles",
+		Short: "List profiles",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			h2Dir := config.ConfigDir()
 			profiles, err := discoverProfiles(h2Dir)
@@ -111,7 +111,7 @@ func newProfileShowCmd() *cobra.Command {
 			}
 
 			h2Dir := config.ConfigDir()
-			sharedDir := filepath.Join(h2Dir, "account-profiles-shared", name)
+			sharedDir := filepath.Join(h2Dir, "profiles", name)
 			claudeDir := filepath.Join(h2Dir, "claude-config", name)
 			codexDir := filepath.Join(h2Dir, "codex-config", name)
 
@@ -128,7 +128,7 @@ func newProfileShowCmd() *cobra.Command {
 			fmt.Fprintf(out, "  Shared: %s (%s)\n", sharedDir, yesNo(sharedExists))
 			fmt.Fprintf(out, "  Claude: %s (%s)\n", claudeDir, yesNo(claudeExists))
 			fmt.Fprintf(out, "  Codex:  %s (%s)\n", codexDir, yesNo(codexExists))
-			fmt.Fprintf(out, "  Symlink account-profiles-shared/%s: %s\n", name, symlinkStatus(sharedDir))
+			fmt.Fprintf(out, "  Symlink profiles/%s: %s\n", name, symlinkStatus(sharedDir))
 			fmt.Fprintf(out, "  Symlink claude-config/%s/CLAUDE.md: %s\n", name, symlinkStatus(filepath.Join(claudeDir, "CLAUDE.md")))
 			fmt.Fprintf(out, "  Symlink claude-config/%s/skills: %s\n", name, symlinkStatus(filepath.Join(claudeDir, "skills")))
 			fmt.Fprintf(out, "  Symlink codex-config/%s/AGENTS.md: %s\n", name, symlinkStatus(filepath.Join(codexDir, "AGENTS.md")))
@@ -142,7 +142,7 @@ func newProfileShowCmd() *cobra.Command {
 					fmt.Fprintf(out, "  Claude authenticated: %s\n", yesNo(auth))
 				}
 			}
-			if err := printContentMeta(out, "account-profiles-shared/"+name, sharedDir); err != nil {
+			if err := printContentMeta(out, "profiles/"+name, sharedDir); err != nil {
 				return err
 			}
 			if err := printContentMeta(out, "claude-config/"+name, claudeDir); err != nil {
@@ -163,8 +163,8 @@ func newProfileCreateCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "create <name>",
-		Short: "Create a new account profile",
-		Long: `Create a named account profile scaffold under the h2 directory.
+		Short: "Create a new profile",
+		Long: `Create a named profile scaffold under the h2 directory.
 
 By default this creates both Claude and Codex profile files. Use --agent-harness
 to create only one harness profile:
@@ -220,7 +220,7 @@ func createProfile(h2Dir, name, style, symlinkSharedFrom, harnessType string, ou
 }
 
 func resetProfile(h2Dir, name, style string, includeAuth, includeSkills, includeInstructions, includeSettings bool, out io.Writer) error {
-	sharedDir := filepath.Join(h2Dir, "account-profiles-shared", name)
+	sharedDir := filepath.Join(h2Dir, "profiles", name)
 	sharedSkillsDir := filepath.Join(sharedDir, "skills")
 	claudeDir := filepath.Join(h2Dir, "claude-config", name)
 	codexDir := filepath.Join(h2Dir, "codex-config", name)
@@ -245,7 +245,7 @@ func resetProfile(h2Dir, name, style string, includeAuth, includeSkills, include
 		if err := config.UpsertContentMeta(sharedDir, style, []string{"CLAUDE_AND_AGENTS.md"}); err != nil {
 			return fmt.Errorf("update shared metadata: %w", err)
 		}
-		fmt.Fprintf(out, "  Wrote account-profiles-shared/%s/CLAUDE_AND_AGENTS.md\n", name)
+		fmt.Fprintf(out, "  Wrote profiles/%s/CLAUDE_AND_AGENTS.md\n", name)
 	}
 
 	if includeSkills {
@@ -261,7 +261,7 @@ func resetProfile(h2Dir, name, style string, includeAuth, includeSkills, include
 				return fmt.Errorf("update shared metadata: %w", err)
 			}
 		}
-		fmt.Fprintf(out, "  Updated managed account-profiles-shared/%s/skills/\n", name)
+		fmt.Fprintf(out, "  Updated managed profiles/%s/skills/\n", name)
 	}
 
 	if includeSettings {
@@ -305,14 +305,14 @@ func resetProfile(h2Dir, name, style string, includeAuth, includeSkills, include
 }
 
 func createOrUpdateProfile(h2Dir, name, style, symlinkSharedFrom, harnessType string, requireNew, announce bool, out io.Writer) error {
-	sharedDir := filepath.Join(h2Dir, "account-profiles-shared", name)
+	sharedDir := filepath.Join(h2Dir, "profiles", name)
 	claudeDir := filepath.Join(h2Dir, "claude-config", name)
 	codexDir := filepath.Join(h2Dir, "codex-config", name)
 
 	if requireNew {
 		switch harnessType {
 		case profileHarnessAll:
-			if err := ensurePathMissing(sharedDir, "account-profiles-shared/"+name); err != nil {
+			if err := ensurePathMissing(sharedDir, "profiles/"+name); err != nil {
 				return err
 			}
 			if err := ensurePathMissing(claudeDir, "claude-config/"+name); err != nil {
@@ -322,14 +322,14 @@ func createOrUpdateProfile(h2Dir, name, style, symlinkSharedFrom, harnessType st
 				return err
 			}
 		case profileHarnessClaude:
-			if err := ensurePathMissing(sharedDir, "account-profiles-shared/"+name); err != nil {
+			if err := ensurePathMissing(sharedDir, "profiles/"+name); err != nil {
 				return err
 			}
 			if err := ensurePathMissing(claudeDir, "claude-config/"+name); err != nil {
 				return err
 			}
 		case profileHarnessCodex:
-			if err := ensurePathMissing(sharedDir, "account-profiles-shared/"+name); err != nil {
+			if err := ensurePathMissing(sharedDir, "profiles/"+name); err != nil {
 				return err
 			}
 			if err := ensurePathMissing(codexDir, "codex-config/"+name); err != nil {
@@ -345,7 +345,7 @@ func createOrUpdateProfile(h2Dir, name, style, symlinkSharedFrom, harnessType st
 }
 
 func scaffoldProfile(h2Dir, name, style, harnessType string, out io.Writer, announce bool) error {
-	sharedDir := filepath.Join(h2Dir, "account-profiles-shared", name)
+	sharedDir := filepath.Join(h2Dir, "profiles", name)
 	sharedSkillsDir := filepath.Join(sharedDir, "skills")
 	claudeDir := filepath.Join(h2Dir, "claude-config", name)
 	codexDir := filepath.Join(h2Dir, "codex-config", name)
@@ -371,8 +371,8 @@ func scaffoldProfile(h2Dir, name, style, harnessType string, out io.Writer, anno
 			return fmt.Errorf("update shared metadata: %w", err)
 		}
 	}
-	fmt.Fprintf(out, "  Wrote account-profiles-shared/%s/CLAUDE_AND_AGENTS.md\n", name)
-	fmt.Fprintf(out, "  Wrote account-profiles-shared/%s/skills/\n", name)
+	fmt.Fprintf(out, "  Wrote profiles/%s/CLAUDE_AND_AGENTS.md\n", name)
+	fmt.Fprintf(out, "  Wrote profiles/%s/skills/\n", name)
 
 	if harnessType == profileHarnessAll || harnessType == profileHarnessClaude {
 		if err := ensureClaudeProfileScaffold(claudeDir, name, style, out); err != nil {
@@ -393,8 +393,8 @@ func scaffoldProfile(h2Dir, name, style, harnessType string, out io.Writer, anno
 }
 
 func createProfileWithSharedSymlink(h2Dir, name, sourceProfile, harnessType string, out io.Writer) error {
-	srcShared := filepath.Join(h2Dir, "account-profiles-shared", sourceProfile)
-	dstShared := filepath.Join(h2Dir, "account-profiles-shared", name)
+	srcShared := filepath.Join(h2Dir, "profiles", sourceProfile)
+	dstShared := filepath.Join(h2Dir, "profiles", name)
 
 	if _, err := os.Stat(srcShared); err != nil {
 		if os.IsNotExist(err) {
@@ -403,12 +403,12 @@ func createProfileWithSharedSymlink(h2Dir, name, sourceProfile, harnessType stri
 		return fmt.Errorf("stat symlink source profile %q: %w", sourceProfile, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(dstShared), 0o755); err != nil {
-		return fmt.Errorf("create account-profiles-shared dir: %w", err)
+		return fmt.Errorf("create profiles dir: %w", err)
 	}
 	if err := os.Symlink(sourceProfile, dstShared); err != nil {
 		return fmt.Errorf("symlink shared profile: %w", err)
 	}
-	fmt.Fprintf(out, "  Symlinked account-profiles-shared/%s -> account-profiles-shared/%s\n", name, sourceProfile)
+	fmt.Fprintf(out, "  Symlinked profiles/%s -> profiles/%s\n", name, sourceProfile)
 
 	if harnessType == profileHarnessAll || harnessType == profileHarnessClaude {
 		srcClaude := filepath.Join(h2Dir, "claude-config", sourceProfile)
@@ -590,7 +590,7 @@ func ensurePathMissing(path, label string) error {
 func discoverProfiles(h2Dir string) ([]string, error) {
 	seen := map[string]struct{}{}
 	for _, root := range []string{
-		filepath.Join(h2Dir, "account-profiles-shared"),
+		filepath.Join(h2Dir, "profiles"),
 		filepath.Join(h2Dir, "claude-config"),
 		filepath.Join(h2Dir, "codex-config"),
 	} {
@@ -708,8 +708,8 @@ func symlinkStatus(path string) string {
 }
 
 func ensureClaudeProfileLinks(claudeDir, profileName string, out io.Writer) error {
-	mdTarget := filepath.Join("..", "..", "account-profiles-shared", profileName, "CLAUDE_AND_AGENTS.md")
-	skillsTarget := filepath.Join("..", "..", "account-profiles-shared", profileName, "skills")
+	mdTarget := filepath.Join("..", "..", "profiles", profileName, "CLAUDE_AND_AGENTS.md")
+	skillsTarget := filepath.Join("..", "..", "profiles", profileName, "skills")
 	if err := ensureSymlink(filepath.Join(claudeDir, "CLAUDE.md"), mdTarget, true, out, "claude-config/"+profileName+"/CLAUDE.md"); err != nil {
 		return err
 	}
@@ -720,8 +720,8 @@ func ensureClaudeProfileLinks(claudeDir, profileName string, out io.Writer) erro
 }
 
 func ensureCodexProfileLinks(codexDir, profileName string, out io.Writer) error {
-	mdTarget := filepath.Join("..", "..", "account-profiles-shared", profileName, "CLAUDE_AND_AGENTS.md")
-	skillsTarget := filepath.Join("..", "..", "account-profiles-shared", profileName, "skills")
+	mdTarget := filepath.Join("..", "..", "profiles", profileName, "CLAUDE_AND_AGENTS.md")
+	skillsTarget := filepath.Join("..", "..", "profiles", profileName, "skills")
 	if err := ensureSymlink(filepath.Join(codexDir, "AGENTS.md"), mdTarget, true, out, "codex-config/"+profileName+"/AGENTS.md"); err != nil {
 		return err
 	}

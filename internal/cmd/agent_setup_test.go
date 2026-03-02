@@ -13,14 +13,14 @@ func TestValidateHarnessConfigDirExists_MissingProfileDerivedDir(t *testing.T) {
 	h2Dir := setupProfileTestH2Dir(t)
 	role := &config.Role{
 		AgentHarness:        "codex",
-		AgentAccountProfile: "alt",
+		Profile: "alt",
 	}
 
 	err := validateHarnessConfigDirExists(role, roleHarnessConfig(role))
 	if err == nil {
 		t.Fatal("expected error for missing profile-derived config dir")
 	}
-	if !strings.Contains(err.Error(), `account profile "alt" not found`) {
+	if !strings.Contains(err.Error(), `profile "alt" not found`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(err.Error(), filepath.Join(h2Dir, "codex-config", "alt")) {
@@ -32,7 +32,7 @@ func TestValidateHarnessConfigDirExists_ExistingProfileDerivedDir(t *testing.T) 
 	h2Dir := setupProfileTestH2Dir(t)
 	role := &config.Role{
 		AgentHarness:        "codex",
-		AgentAccountProfile: "alt1",
+		Profile: "alt1",
 	}
 
 	if err := os.MkdirAll(filepath.Join(h2Dir, "codex-config", "alt1"), 0o755); err != nil {
@@ -49,7 +49,7 @@ func TestDoSetupAndForkAgent_FailsWhenProfileMissing(t *testing.T) {
 	role := &config.Role{
 		RoleName:             "reviewer-extra-1-sand",
 		AgentHarness:         "codex",
-		AgentAccountProfile:  "alt",
+		Profile:  "alt",
 		CodexAskForApproval:  "never",
 		CodexSandboxMode:     "workspace-write",
 		WorktreeEnabled:      false,
@@ -60,7 +60,7 @@ func TestDoSetupAndForkAgent_FailsWhenProfileMissing(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing profile")
 	}
-	if !strings.Contains(err.Error(), `account profile "alt" not found`) {
+	if !strings.Contains(err.Error(), `profile "alt" not found`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

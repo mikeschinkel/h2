@@ -139,7 +139,7 @@ We considered a unified `approval_policy` field that would map to each harness's
 3. Users who configure permissions typically know which agent they're targeting
 4. Harness-native fields avoid a confusing translation layer
 
-Tool allow/deny rules are configured in each agent's native config format within the account profile (Claude Code `settings.json`, Codex `requirements.toml`), not in h2 role config. See [configuration.md](configuration.md) for the full role field reference and account profile layout.
+Tool allow/deny rules are configured in each agent's native config format within the profile (Claude Code `settings.json`, Codex `requirements.toml`), not in h2 role config. See [configuration.md](configuration.md) for the full role field reference and profile layout.
 
 ### How settings are delivered to each agent
 
@@ -149,5 +149,5 @@ Tool allow/deny rules are configured in each agent's native config format within
 | Sandbox | n/a | `--sandbox <value>` |
 | Model | `--model <value>` | `--model <value>` |
 | Instructions | `--append-system-prompt <value>` | `-c instructions=<json>` |
-| Tool allow/deny | `settings.json` in account profile | `requirements.toml` in account profile |
+| Tool allow/deny | `settings.json` in profile | `requirements.toml` in profile |
 | Review agent | Written to session dir as `permission-reviewer.md` | Not yet supported |

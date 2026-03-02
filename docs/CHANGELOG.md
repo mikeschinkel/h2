@@ -35,7 +35,7 @@ to be updated.
 |---|---|
 | `agent_name` | Template-rendered agent name (see Agent Naming below) |
 | `agent_harness_command` | Command override for any harness |
-| `agent_account_profile` | Account profile name (default: `default`) |
+| `profile` | Account profile name (default: `default`) |
 | `codex_sandbox_mode` | Codex `--sandbox` flag (`read-only`, `workspace-write`, `danger-full-access`) |
 | `codex_ask_for_approval` | Codex `--ask-for-approval` flag (`untrusted`, `on-request`, `never`) |
 | `permission_review_agent` | AI permission reviewer (replaces `permissions.agent`) |

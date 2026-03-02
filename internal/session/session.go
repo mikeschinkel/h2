@@ -263,7 +263,7 @@ func resolveFullHarness(command, roleName string, log *activitylog.Logger) (harn
 	}
 
 	// No role specified — resolve from command name alone.
-	// Always use "default" account profile — role name != account profile.
+	// Always use "default" profile — role name != profile.
 	harnessType := "generic"
 	var configDir string
 	switch filepath.Base(command) {

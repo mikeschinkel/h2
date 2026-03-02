@@ -785,7 +785,7 @@ agent_harness: claude_code
 		t.Fatalf("resolveFullHarness: %v", err)
 	}
 
-	// The harness should use the default account profile ("default"), not the role name.
+	// The harness should use the default profile ("default"), not the role name.
 	envVars := h.BuildCommandEnvVars(h2Dir)
 	want := filepath.Join(h2Dir, "claude-config", "default")
 	if got := envVars["CLAUDE_CONFIG_DIR"]; got != want {

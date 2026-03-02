@@ -96,7 +96,7 @@ func newStatsUsageCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.format, "format", "table", "Output format: table, json, csv")
 	cmd.Flags().StringArrayVar(&opts.matchAgentName, "match-agent-name", nil, "Glob match agent name (repeatable)")
 	cmd.Flags().StringArrayVar(&opts.matchHarness, "match-harness", nil, "Match harness (claude_code, codex, generic), repeatable")
-	cmd.Flags().StringArrayVar(&opts.matchProfile, "match-profile", nil, "Match account profile name, repeatable")
+	cmd.Flags().StringArrayVar(&opts.matchProfile, "match-profile", nil, "Match profile name, repeatable")
 	cmd.Flags().StringArrayVar(&opts.matchRole, "match-role", nil, "Match role name, repeatable")
 	return cmd
 }
@@ -193,7 +193,7 @@ func loadStatsAgents(h2Dir string) ([]statsAgentSession, error) {
 					if role.GetHarnessType() != "" {
 						loadedHarness = role.GetHarnessType()
 					}
-					if p := strings.TrimSpace(role.GetAgentAccountProfile()); p != "" {
+					if p := strings.TrimSpace(role.GetProfile()); p != "" {
 						loadedProfile = p
 					}
 				}

@@ -15,7 +15,7 @@ func TestStatsUsage_TableAndFilters(t *testing.T) {
 	rolePath := filepath.Join(h2Dir, "roles", "default.yaml")
 	role := `role_name: default
 agent_harness: codex
-agent_account_profile: alt1
+profile: alt1
 `
 	if err := os.WriteFile(rolePath, []byte(role), 0o644); err != nil {
 		t.Fatal(err)

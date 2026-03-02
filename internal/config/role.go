@@ -190,7 +190,7 @@ type Role struct {
 	AgentHarness               string `yaml:"agent_harness,omitempty"`                  // claude_code | codex | generic
 	AgentModel                 string `yaml:"agent_model,omitempty"`                    // explicit model; empty => agent app's own default
 	AgentHarnessCommand        string `yaml:"agent_harness_command,omitempty"`          // command override for any harness
-	AgentAccountProfile        string `yaml:"agent_account_profile,omitempty"`          // default account profile name ("default")
+	Profile        string `yaml:"profile,omitempty"`          // default profile name ("default")
 	ClaudeCodeConfigPath       string `yaml:"claude_code_config_path,omitempty"`        // explicit path override
 	ClaudeCodeConfigPathPrefix string `yaml:"claude_code_config_path_prefix,omitempty"` // default: <H2Dir>/claude-config
 	CodexConfigPath            string `yaml:"codex_config_path,omitempty"`              // explicit path override
@@ -399,13 +399,13 @@ func (r *Role) GetCodexConfigDir() string {
 	if prefix == "" {
 		prefix = filepath.Join(ConfigDir(), "codex-config")
 	}
-	return filepath.Join(prefix, r.GetAgentAccountProfile())
+	return filepath.Join(prefix, r.GetProfile())
 }
 
-// GetAgentAccountProfile returns the selected account profile name.
-func (r *Role) GetAgentAccountProfile() string {
-	if strings.TrimSpace(r.AgentAccountProfile) != "" {
-		return strings.TrimSpace(r.AgentAccountProfile)
+// GetProfile returns the selected profile name.
+func (r *Role) GetProfile() string {
+	if strings.TrimSpace(r.Profile) != "" {
+		return strings.TrimSpace(r.Profile)
 	}
 	return "default"
 }
@@ -431,7 +431,7 @@ func (r *Role) GetClaudeConfigDir() string {
 	if prefix == "" {
 		prefix = filepath.Join(ConfigDir(), "claude-config")
 	}
-	return expandClaudeConfigDir(filepath.Join(prefix, r.GetAgentAccountProfile()))
+	return expandClaudeConfigDir(filepath.Join(prefix, r.GetProfile()))
 }
 
 // expandClaudeConfigDir handles tilde expansion for Claude config dir paths.

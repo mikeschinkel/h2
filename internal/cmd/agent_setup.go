@@ -206,8 +206,8 @@ func validateHarnessConfigDirExists(role *config.Role, hcfg harness.HarnessConfi
 	profileDerivedPath := (hcfg.HarnessType == "claude_code" && role.ClaudeCodeConfigPath == "") ||
 		(hcfg.HarnessType == "codex" && role.CodexConfigPath == "")
 	if profileDerivedPath {
-		profile := role.GetAgentAccountProfile()
-		return fmt.Errorf("account profile %q not found (missing %s); h2 does not auto-create profiles on run, use 'h2 profile create %s' or choose an existing profile via 'h2 profile list'",
+		profile := role.GetProfile()
+		return fmt.Errorf("profile %q not found (missing %s); h2 does not auto-create profiles on run, use 'h2 profile create %s' or choose an existing profile via 'h2 profile list'",
 			profile, hcfg.ConfigDir, profile)
 	}
 	return fmt.Errorf("missing harness config dir: %s", hcfg.ConfigDir)

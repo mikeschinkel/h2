@@ -154,15 +154,34 @@ Now find your chat id:
 
 Define teams of agents with roles and instructions, then launch them together to work on projects.
 
+### Profiles
+
+Profiles are reusable harness configuration bundles (auth, settings, shared instructions, skills). They live under your h2 directory:
+
+```text
+~/.h2/
+├── profiles/<name>/               # shared instructions + skills
+├── claude-config/<name>/          # Claude harness config
+└── codex-config/<name>/           # Codex harness config
+```
+
+Use profile commands to manage them:
+
+```bash
+h2 profile list
+h2 profile show default
+h2 profile create work
+```
+
 ### Roles
 
-Roles define an agent's model, instructions, permissions, and working directory. They live in `~/.h2/roles/`:
+Roles define how to launch agents (harness, model, profile, instructions, permissions, working directory). They live in `~/.h2/roles/`:
 
 ```yaml
 # ~/.h2/roles/coding.yaml
 name: coding
 model: opus
-claude_config_dir: ~/.h2/claude-config/default
+profile: default
 instructions: |
   You are a coding agent. You write, edit, and debug code.
   ...
@@ -176,7 +195,7 @@ permissions:
       ALLOW standard dev commands. DENY destructive system ops.
 ```
 
-Each role can point to a different `claude_config_dir`, which controls which `CLAUDE.md`, `settings.json`, hooks, and skills the agent uses. This gives you a simple way to maintain separate configurations for different use cases — a coding agent might have different instructions and allowed tools than a reviewer or a research agent.
+Each role points at a profile, which controls which `CLAUDE.md`/`AGENTS.md`, settings, hooks, and skills the agent uses. This gives you a simple way to maintain separate configurations for different use cases - a coding agent might use a different profile than a reviewer or research agent.
 
 ### Pods
 
