@@ -210,6 +210,36 @@ Other internal refactors:
 - Added Makefile with `build`, `test`, `check` (vet + staticcheck), and
   `test-coverage` targets.
 - Fixed `vet` and `staticcheck` findings.
+- Added CI workflow and `check-nofix`, `test-e2e`, and `loc` targets.
+
+### Profile and Role Management
+
+- Added role inheritance with deep-merge semantics and preserved YAML node
+  merge/tag handling.
+- Added profile commands (`create`, `list`, `show`, `update`) and unified
+  profile/role creation paths across `init` and role commands.
+- Added style-based `init` templates and generated harness config support.
+- Clarified and expanded role/template docs for inheritance and variable
+  contracts.
+
+### Bridge and Runtime Improvements
+
+- Refactored `h2 bridge` into subcommands and added bridge-service concierge
+  lifecycle management.
+- Added bridge service lifecycle integration tests and fixed race conditions.
+- Improved terminal render behavior with synchronized output handling and
+  VT capability query responses.
+- Added stricter run preflight checks for socket/daemon state and harness
+  configuration.
+
+### Planning Skills and Docs
+
+- Added planning lifecycle skills: `plan-architect`, `plan-draft`,
+  `plan-review`, `plan-incorporate`, and `plan-summarize`.
+- Added `plan-orchestrate` skill for coordinating plan generation/review
+  end-to-end.
+- Improved skill docs and parser logic for disposition table handling and
+  multi-round review reporting.
 
 ## v0.1.0
 
