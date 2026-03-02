@@ -263,7 +263,7 @@ func TestPodRole_PodOverridesGlobal(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 
 	// Create global and pod role with same name but different descriptions.
-createRole(t, h2Dir, "shared-role", `
+	createRole(t, h2Dir, "shared-role", `
 role_name: shared-role
 agent_harness: generic
 agent_harness_command: "true"
@@ -309,7 +309,7 @@ description: pod-override
 // §8.3 h2 role list shows both scopes
 func TestPodRole_RoleListShowsBothScopes(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
-createRole(t, h2Dir, "global-role", `
+	createRole(t, h2Dir, "global-role", `
 role_name: global-role
 agent_harness: generic
 agent_harness_command: "true"

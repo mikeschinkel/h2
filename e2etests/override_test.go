@@ -12,7 +12,7 @@ func TestOverride_SimpleStringField(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	overrideDir := t.TempDir()
 
-createRole(t, h2Dir, "override-str", `
+	createRole(t, h2Dir, "override-str", `
 role_name: override-str
 agent_harness: generic
 agent_harness_command: "true"
@@ -42,7 +42,7 @@ func TestOverride_NestedStringField_Worktree(t *testing.T) {
 	createGitRepo(t, h2Dir, "projects/myrepo")
 
 	// Role has worktree with project_dir — override branch_from.
-createRole(t, h2Dir, "override-wt", `
+	createRole(t, h2Dir, "override-wt", `
 role_name: override-wt
 agent_harness: generic
 agent_harness_command: "true"
@@ -87,7 +87,7 @@ worktree_branch_from: main
 func TestOverride_InvalidKey(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 
-createRole(t, h2Dir, "override-bad-key", `
+	createRole(t, h2Dir, "override-bad-key", `
 role_name: override-bad-key
 agent_harness: generic
 agent_harness_command: "true"
@@ -112,7 +112,7 @@ instructions: test invalid override key
 func TestOverride_TypeMismatch(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 
-createRole(t, h2Dir, "override-type", `
+	createRole(t, h2Dir, "override-type", `
 role_name: override-type
 agent_harness: generic
 agent_harness_command: "true"
@@ -138,7 +138,7 @@ func TestOverride_RecordedInMetadata(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	overrideDir := t.TempDir()
 
-createRole(t, h2Dir, "override-meta", `
+	createRole(t, h2Dir, "override-meta", `
 role_name: override-meta
 agent_harness: generic
 agent_harness_command: "true"

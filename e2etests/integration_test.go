@@ -18,7 +18,7 @@ func TestIntegration_FullWorkflow(t *testing.T) {
 	createGitRepo(t, h2Dir, "projects/webapp")
 
 	// 3. Create roles (builder with branch worktree, reviewer with detached head).
-createRole(t, h2Dir, "builder", `
+	createRole(t, h2Dir, "builder", `
 role_name: builder
 agent_harness: generic
 agent_harness_command: "true"
@@ -157,7 +157,7 @@ func TestBackwardCompat_LegacyRole(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 
 	// A role YAML with no working_dir, no worktree block — legacy format.
-createRole(t, h2Dir, "legacy", `
+	createRole(t, h2Dir, "legacy", `
 role_name: legacy
 agent_harness: generic
 agent_harness_command: "true"
@@ -192,7 +192,7 @@ instructions: I am a legacy role.
 func TestBackwardCompat_RunWithoutPod(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 
-createRole(t, h2Dir, "nopod", `
+	createRole(t, h2Dir, "nopod", `
 role_name: nopod
 agent_harness: generic
 agent_harness_command: "true"

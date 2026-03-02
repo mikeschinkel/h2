@@ -190,7 +190,7 @@ type Role struct {
 	AgentHarness               string `yaml:"agent_harness,omitempty"`                  // claude_code | codex | generic
 	AgentModel                 string `yaml:"agent_model,omitempty"`                    // explicit model; empty => agent app's own default
 	AgentHarnessCommand        string `yaml:"agent_harness_command,omitempty"`          // command override for any harness
-	Profile        string `yaml:"profile,omitempty"`          // default profile name ("default")
+	Profile                    string `yaml:"profile,omitempty"`                        // default profile name ("default")
 	ClaudeCodeConfigPath       string `yaml:"claude_code_config_path,omitempty"`        // explicit path override
 	ClaudeCodeConfigPathPrefix string `yaml:"claude_code_config_path_prefix,omitempty"` // default: <H2Dir>/claude-config
 	CodexConfigPath            string `yaml:"codex_config_path,omitempty"`              // explicit path override

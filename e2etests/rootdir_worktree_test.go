@@ -13,7 +13,7 @@ import (
 // §4.1 Default working_dir (CWD)
 func TestWorkingDir_Default(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
-createRole(t, h2Dir, "default-cwd", `
+	createRole(t, h2Dir, "default-cwd", `
 role_name: default-cwd
 agent_harness: generic
 agent_harness_command: "true"
@@ -39,7 +39,7 @@ func TestWorkingDir_Absolute(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	absDir := t.TempDir()
 
-createRole(t, h2Dir, "abs-dir", `
+	createRole(t, h2Dir, "abs-dir", `
 role_name: abs-dir
 agent_harness: generic
 agent_harness_command: "true"
@@ -70,7 +70,7 @@ func TestWorkingDir_Relative(t *testing.T) {
 	projDir := filepath.Join(h2Dir, "projects", "myapp")
 	os.MkdirAll(projDir, 0o755)
 
-createRole(t, h2Dir, "rel-dir", `
+	createRole(t, h2Dir, "rel-dir", `
 role_name: rel-dir
 agent_harness: generic
 agent_harness_command: "true"
@@ -97,7 +97,7 @@ func TestWorktree_NewBranch(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	_ = createGitRepo(t, h2Dir, "projects/myrepo")
 
-createRole(t, h2Dir, "wt-agent", `
+	createRole(t, h2Dir, "wt-agent", `
 role_name: wt-agent
 agent_harness: generic
 agent_harness_command: "true"
@@ -157,7 +157,7 @@ func TestWorktree_DetachedHead(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	_ = createGitRepo(t, h2Dir, "projects/myrepo")
 
-createRole(t, h2Dir, "wt-detached", `
+	createRole(t, h2Dir, "wt-detached", `
 role_name: wt-detached
 agent_harness: generic
 agent_harness_command: "true"
@@ -203,7 +203,7 @@ func TestWorktree_NonGitProjectDir(t *testing.T) {
 	notGitDir := filepath.Join(h2Dir, "projects", "not-a-repo")
 	os.MkdirAll(notGitDir, 0o755)
 
-createRole(t, h2Dir, "wt-nogit", `
+	createRole(t, h2Dir, "wt-nogit", `
 role_name: wt-nogit
 agent_harness: generic
 agent_harness_command: "true"
@@ -230,7 +230,7 @@ func TestWorktree_CorruptWorktreeDir(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	createGitRepo(t, h2Dir, "projects/myrepo")
 
-createRole(t, h2Dir, "wt-corrupt", `
+	createRole(t, h2Dir, "wt-corrupt", `
 role_name: wt-corrupt
 agent_harness: generic
 agent_harness_command: "true"
@@ -263,7 +263,7 @@ func TestWorktree_ReuseExisting(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	createGitRepo(t, h2Dir, "projects/myrepo")
 
-createRole(t, h2Dir, "wt-reuse", `
+	createRole(t, h2Dir, "wt-reuse", `
 role_name: wt-reuse
 agent_harness: generic
 agent_harness_command: "true"
