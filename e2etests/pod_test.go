@@ -18,10 +18,9 @@ func createPodRole(t *testing.T, h2Dir, name, content string) {
 
 // workerRole is a minimal role that starts and stays running.
 const workerRole = `
-name: worker
-agent_harness:
-  harness_type: generic
-  command: "true"
+role_name: worker
+agent_harness: generic
+agent_harness_command: "true"
 instructions: test worker
 `
 
@@ -31,14 +30,14 @@ func TestPod_LaunchAgentsInPod(t *testing.T) {
 	createRole(t, h2Dir, "worker", workerRole)
 
 	// Launch two agents in the same pod.
-	r1 := runH2(t, h2Dir, "run", "--role", "worker", "--pod", "backend", "--name", "builder", "--detach")
+	r1 := runH2(t, h2Dir, "run", "--role", "worker", "--pod", "backend", "builder", "--detach")
 	if r1.ExitCode != 0 {
 		t.Fatalf("h2 run builder failed: exit=%d stderr=%s", r1.ExitCode, r1.Stderr)
 	}
 	t.Cleanup(func() { stopAgent(t, h2Dir, "builder") })
 	waitForSocket(t, h2Dir, "agent", "builder")
 
-	r2 := runH2(t, h2Dir, "run", "--role", "worker", "--pod", "backend", "--name", "tester", "--detach")
+	r2 := runH2(t, h2Dir, "run", "--role", "worker", "--pod", "backend", "tester", "--detach")
 	if r2.ExitCode != 0 {
 		t.Fatalf("h2 run tester failed: exit=%d stderr=%s", r2.ExitCode, r2.Stderr)
 	}
@@ -69,7 +68,7 @@ func TestPod_ListGroupedByPod(t *testing.T) {
 		{"f1", "frontend"},
 		{"solo", ""},
 	} {
-		args := []string{"run", "--role", "worker", "--name", a.name, "--detach"}
+		args := []string{"run", "--role", "worker", a.name, "--detach"}
 		if a.pod != "" {
 			args = append(args, "--pod", a.pod)
 		}
@@ -106,7 +105,7 @@ func TestPod_ListFilterByPod(t *testing.T) {
 		{"b1", "backend"},
 		{"f1", "frontend"},
 	} {
-		r := runH2(t, h2Dir, "run", "--role", "worker", "--pod", a.pod, "--name", a.name, "--detach")
+		r := runH2(t, h2Dir, "run", "--role", "worker", "--pod", a.pod, a.name, "--detach")
 		if r.ExitCode != 0 {
 			t.Fatalf("h2 run %s failed: exit=%d stderr=%s", a.name, r.ExitCode, r.Stderr)
 		}
@@ -136,7 +135,7 @@ func TestPod_ListStarShowsAll(t *testing.T) {
 		{"b1", "backend"},
 		{"f1", "frontend"},
 	} {
-		r := runH2(t, h2Dir, "run", "--role", "worker", "--pod", a.pod, "--name", a.name, "--detach")
+		r := runH2(t, h2Dir, "run", "--role", "worker", "--pod", a.pod, a.name, "--detach")
 		if r.ExitCode != 0 {
 			t.Fatalf("h2 run %s failed: exit=%d stderr=%s", a.name, r.ExitCode, r.Stderr)
 		}
@@ -166,7 +165,7 @@ func TestPod_ListH2PODEnvFilter(t *testing.T) {
 		{"b1", "backend"},
 		{"f1", "frontend"},
 	} {
-		r := runH2(t, h2Dir, "run", "--role", "worker", "--pod", a.pod, "--name", a.name, "--detach")
+		r := runH2(t, h2Dir, "run", "--role", "worker", "--pod", a.pod, a.name, "--detach")
 		if r.ExitCode != 0 {
 			t.Fatalf("h2 run %s failed: exit=%d stderr=%s", a.name, r.ExitCode, r.Stderr)
 		}
@@ -196,7 +195,7 @@ func TestPod_ListFlagOverridesEnv(t *testing.T) {
 		{"b1", "backend"},
 		{"f1", "frontend"},
 	} {
-		r := runH2(t, h2Dir, "run", "--role", "worker", "--pod", a.pod, "--name", a.name, "--detach")
+		r := runH2(t, h2Dir, "run", "--role", "worker", "--pod", a.pod, a.name, "--detach")
 		if r.ExitCode != 0 {
 			t.Fatalf("h2 run %s failed: exit=%d stderr=%s", a.name, r.ExitCode, r.Stderr)
 		}
@@ -227,7 +226,7 @@ func TestPod_SendNotPodScoped(t *testing.T) {
 		{"b1", "backend"},
 		{"f1", "frontend"},
 	} {
-		r := runH2(t, h2Dir, "run", "--role", "worker", "--pod", a.pod, "--name", a.name, "--detach")
+		r := runH2(t, h2Dir, "run", "--role", "worker", "--pod", a.pod, a.name, "--detach")
 		if r.ExitCode != 0 {
 			t.Fatalf("h2 run %s failed: exit=%d stderr=%s", a.name, r.ExitCode, r.Stderr)
 		}
@@ -248,7 +247,7 @@ func TestPod_NameValidation(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	createRole(t, h2Dir, "worker", workerRole)
 
-	result := runH2(t, h2Dir, "run", "--role", "worker", "--pod", "INVALID POD!", "--name", "test-badpod", "--detach")
+	result := runH2(t, h2Dir, "run", "--role", "worker", "--pod", "INVALID POD!", "test-badpod", "--detach")
 	if result.ExitCode == 0 {
 		t.Fatal("expected error for invalid pod name")
 		t.Cleanup(func() { stopAgent(t, h2Dir, "test-badpod") })
@@ -264,25 +263,23 @@ func TestPodRole_PodOverridesGlobal(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 
 	// Create global and pod role with same name but different descriptions.
-	createRole(t, h2Dir, "shared-role", `
-name: shared-role
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "shared-role", `
+role_name: shared-role
+agent_harness: generic
+agent_harness_command: "true"
 instructions: global version
 description: global
 `)
 	createPodRole(t, h2Dir, "shared-role", `
-name: shared-role
-agent_harness:
-  harness_type: generic
-  command: "true"
+role_name: shared-role
+agent_harness: generic
+agent_harness_command: "true"
 instructions: pod version
 description: pod-override
 `)
 
 	// Launch with --pod should use the pod role.
-	r := runH2(t, h2Dir, "run", "--role", "shared-role", "--pod", "test-pod", "--name", "pod-agent", "--detach")
+	r := runH2(t, h2Dir, "run", "--role", "shared-role", "--pod", "test-pod", "pod-agent", "--detach")
 	if r.ExitCode != 0 {
 		t.Fatalf("h2 run failed: exit=%d stderr=%s", r.ExitCode, r.Stderr)
 	}
@@ -290,7 +287,7 @@ description: pod-override
 	waitForSocket(t, h2Dir, "agent", "pod-agent")
 
 	// Launch without --pod should use global role.
-	r2 := runH2(t, h2Dir, "run", "--role", "shared-role", "--name", "global-agent", "--detach")
+	r2 := runH2(t, h2Dir, "run", "--role", "shared-role", "global-agent", "--detach")
 	if r2.ExitCode != 0 {
 		t.Fatalf("h2 run failed: exit=%d stderr=%s", r2.ExitCode, r2.Stderr)
 	}
@@ -312,19 +309,17 @@ description: pod-override
 // §8.3 h2 role list shows both scopes
 func TestPodRole_RoleListShowsBothScopes(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
-	createRole(t, h2Dir, "global-role", `
-name: global-role
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "global-role", `
+role_name: global-role
+agent_harness: generic
+agent_harness_command: "true"
 instructions: global
 description: a global role
 `)
 	createPodRole(t, h2Dir, "pod-role", `
-name: pod-role
-agent_harness:
-  harness_type: generic
-  command: "true"
+role_name: pod-role
+agent_harness: generic
+agent_harness_command: "true"
 instructions: pod
 description: a pod role
 `)

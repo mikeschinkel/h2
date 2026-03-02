@@ -414,11 +414,11 @@ func TestCreateReliabilitySandbox_DefaultsToClaudeAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(roleData)
-	if !strings.Contains(content, "harness_type: claude_code") {
-		t.Errorf("role should default to harness_type: claude_code, got:\n%s", content)
+	if !strings.Contains(content, "agent_harness: claude_code") {
+		t.Errorf("role should default to agent_harness: claude_code, got:\n%s", content)
 	}
-	if !strings.Contains(content, "model: haiku") {
-		t.Errorf("role should default to model: haiku, got:\n%s", content)
+	if !strings.Contains(content, "agent_model: haiku") {
+		t.Errorf("role should default to agent_model: haiku, got:\n%s", content)
 	}
 }
 
@@ -433,11 +433,11 @@ func TestCreateReliabilitySandbox_CustomAgentType(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(roleData)
-	if !strings.Contains(content, "harness_type: generic") {
-		t.Errorf("role should use harness_type: generic, got:\n%s", content)
+	if !strings.Contains(content, "agent_harness: generic") {
+		t.Errorf("role should use agent_harness: generic, got:\n%s", content)
 	}
-	if !strings.Contains(content, "command: true") {
-		t.Errorf("role should have command: true, got:\n%s", content)
+	if !strings.Contains(content, "agent_harness_command: true") {
+		t.Errorf("role should have agent_harness_command: true, got:\n%s", content)
 	}
 }
 

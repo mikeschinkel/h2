@@ -18,28 +18,26 @@ func TestIntegration_FullWorkflow(t *testing.T) {
 	createGitRepo(t, h2Dir, "projects/webapp")
 
 	// 3. Create roles (builder with branch worktree, reviewer with detached head).
-	createRole(t, h2Dir, "builder", `
-name: builder
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "builder", `
+role_name: builder
+agent_harness: generic
+agent_harness_command: "true"
 instructions: Build features.
-worktree:
-  project_dir: projects/webapp
-  name: builder
-  branch_from: main
+working_dir: projects/webapp
+worktree_enabled: true
+worktree_name: builder
+worktree_branch_from: main
 `)
 	createRole(t, h2Dir, "reviewer", `
-name: reviewer
-agent_harness:
-  harness_type: generic
-  command: "true"
+role_name: reviewer
+agent_harness: generic
+agent_harness_command: "true"
 instructions: Review code.
-worktree:
-  project_dir: projects/webapp
-  name: reviewer
-  branch_from: main
-  use_detached_head: true
+working_dir: projects/webapp
+worktree_enabled: true
+worktree_name: reviewer
+worktree_branch_from: main
+worktree_branch: <detached_head>
 `)
 
 	// 4. Create a pod template.
@@ -149,8 +147,8 @@ agents:
 		t.Fatalf("read .h2-dir.txt: %v", err)
 	}
 	markerVersion := strings.TrimSpace(string(markerData))
-	if markerVersion != "v"+cmdVersion {
-		t.Errorf("marker version = %q, command version = %q, expected marker to be 'v'+command", markerVersion, cmdVersion)
+	if markerVersion != cmdVersion {
+		t.Errorf("marker version = %q, command version = %q, expected marker to match command output", markerVersion, cmdVersion)
 	}
 }
 
@@ -159,15 +157,14 @@ func TestBackwardCompat_LegacyRole(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 
 	// A role YAML with no working_dir, no worktree block — legacy format.
-	createRole(t, h2Dir, "legacy", `
-name: legacy
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "legacy", `
+role_name: legacy
+agent_harness: generic
+agent_harness_command: "true"
 instructions: I am a legacy role.
 `)
 
-	result := runH2(t, h2Dir, "run", "--role", "legacy", "--name", "test-legacy", "--detach")
+	result := runH2(t, h2Dir, "run", "--role", "legacy", "test-legacy", "--detach")
 	if result.ExitCode != 0 {
 		t.Skipf("h2 run --detach failed (expected in some environments): %s", result.Stderr)
 	}
@@ -195,15 +192,14 @@ instructions: I am a legacy role.
 func TestBackwardCompat_RunWithoutPod(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 
-	createRole(t, h2Dir, "nopod", `
-name: nopod
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "nopod", `
+role_name: nopod
+agent_harness: generic
+agent_harness_command: "true"
 instructions: No pod agent.
 `)
 
-	result := runH2(t, h2Dir, "run", "--role", "nopod", "--name", "test-nopod", "--detach")
+	result := runH2(t, h2Dir, "run", "--role", "nopod", "test-nopod", "--detach")
 	if result.ExitCode != 0 {
 		t.Skipf("h2 run --detach failed (expected in some environments): %s", result.Stderr)
 	}

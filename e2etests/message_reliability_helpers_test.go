@@ -72,11 +72,11 @@ seeing, one per line, with the exact token string.`
 	var harnessBlock string
 	switch agentType {
 	case "claude", "":
-		harnessBlock = fmt.Sprintf("agent_harness:\n  harness_type: claude_code\nmodel: %s", model)
+		harnessBlock = fmt.Sprintf("agent_harness: claude_code\nagent_model: %s", model)
 	case "codex":
-		harnessBlock = fmt.Sprintf("agent_harness:\n  harness_type: codex\nmodel: %s", model)
+		harnessBlock = fmt.Sprintf("agent_harness: codex\nagent_model: %s", model)
 	default:
-		harnessBlock = fmt.Sprintf("agent_harness:\n  harness_type: generic\n  command: %s", agentType)
+		harnessBlock = fmt.Sprintf("agent_harness: generic\nagent_harness_command: %s", agentType)
 	}
 
 	// Build role YAML.
@@ -562,7 +562,7 @@ func createWorkFiles(t *testing.T, projectDir string, count int) {
 func launchReliabilityAgent(t *testing.T, sb reliabilitySandbox) {
 	t.Helper()
 
-	result := runH2(t, sb.H2Dir, "run", "--role", sb.AgentName, "--name", sb.AgentName, "--detach")
+	result := runH2(t, sb.H2Dir, "run", "--role", sb.AgentName, sb.AgentName, "--detach")
 	if result.ExitCode != 0 {
 		t.Skipf("launchReliabilityAgent: launch failed (exit=%d): %s", result.ExitCode, result.Stderr)
 	}

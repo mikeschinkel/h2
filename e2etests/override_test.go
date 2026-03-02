@@ -12,17 +12,16 @@ func TestOverride_SimpleStringField(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	overrideDir := t.TempDir()
 
-	createRole(t, h2Dir, "override-str", `
-name: override-str
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "override-str", `
+role_name: override-str
+agent_harness: generic
+agent_harness_command: "true"
 instructions: test override string field
 working_dir: /original/path
 `)
 
 	result := runH2(t, h2Dir, "run", "--role", "override-str",
-		"--name", "test-override-str", "--detach",
+		"test-override-str", "--detach",
 		"--override", "working_dir="+overrideDir)
 	if result.ExitCode != 0 {
 		t.Fatalf("h2 run failed: exit=%d stderr=%s stdout=%s", result.ExitCode, result.Stderr, result.Stdout)
@@ -43,21 +42,20 @@ func TestOverride_NestedStringField_Worktree(t *testing.T) {
 	createGitRepo(t, h2Dir, "projects/myrepo")
 
 	// Role has worktree with project_dir — override branch_from.
-	createRole(t, h2Dir, "override-wt", `
-name: override-wt
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "override-wt", `
+role_name: override-wt
+agent_harness: generic
+agent_harness_command: "true"
 instructions: test override nested string
-worktree:
-  project_dir: projects/myrepo
-  name: test-override-wt
-  branch_from: main
+working_dir: projects/myrepo
+worktree_enabled: true
+worktree_name: test-override-wt
+worktree_branch_from: main
 `)
 
 	result := runH2(t, h2Dir, "run", "--role", "override-wt",
-		"--name", "test-override-wt", "--detach",
-		"--override", "worktree.use_detached_head=true")
+		"test-override-wt", "--detach",
+		"--override", "worktree_branch=<detached_head>")
 	if result.ExitCode != 0 {
 		t.Fatalf("h2 run failed: exit=%d stderr=%s stdout=%s", result.ExitCode, result.Stderr, result.Stdout)
 	}
@@ -89,16 +87,15 @@ worktree:
 func TestOverride_InvalidKey(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 
-	createRole(t, h2Dir, "override-bad-key", `
-name: override-bad-key
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "override-bad-key", `
+role_name: override-bad-key
+agent_harness: generic
+agent_harness_command: "true"
 instructions: test invalid override key
 `)
 
 	result := runH2(t, h2Dir, "run", "--role", "override-bad-key",
-		"--name", "test-bad-key", "--detach",
+		"test-bad-key", "--detach",
 		"--override", "nonexistent_field=value")
 	if result.ExitCode == 0 {
 		t.Cleanup(func() { stopAgent(t, h2Dir, "test-bad-key") })
@@ -115,17 +112,16 @@ instructions: test invalid override key
 func TestOverride_TypeMismatch(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 
-	createRole(t, h2Dir, "override-type", `
-name: override-type
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "override-type", `
+role_name: override-type
+agent_harness: generic
+agent_harness_command: "true"
 instructions: test type mismatch
 `)
 
 	result := runH2(t, h2Dir, "run", "--role", "override-type",
-		"--name", "test-type-err", "--detach",
-		"--override", "worktree.use_detached_head=notabool")
+		"test-type-err", "--detach",
+		"--override", "worktree_enabled=notabool")
 	if result.ExitCode == 0 {
 		t.Cleanup(func() { stopAgent(t, h2Dir, "test-type-err") })
 		t.Fatal("expected h2 run to fail for type mismatch")
@@ -142,18 +138,17 @@ func TestOverride_RecordedInMetadata(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	overrideDir := t.TempDir()
 
-	createRole(t, h2Dir, "override-meta", `
-name: override-meta
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "override-meta", `
+role_name: override-meta
+agent_harness: generic
+agent_harness_command: "true"
 instructions: test metadata recording
 `)
 
 	result := runH2(t, h2Dir, "run", "--role", "override-meta",
-		"--name", "test-override-meta", "--detach",
+		"test-override-meta", "--detach",
 		"--override", "working_dir="+overrideDir,
-		"--override", "model=opus")
+		"--override", "agent_model=opus")
 	if result.ExitCode != 0 {
 		t.Fatalf("h2 run failed: exit=%d stderr=%s stdout=%s", result.ExitCode, result.Stderr, result.Stdout)
 	}
@@ -166,7 +161,7 @@ instructions: test metadata recording
 	if meta.Overrides["working_dir"] != overrideDir {
 		t.Errorf("Overrides[working_dir] = %q, want %q", meta.Overrides["working_dir"], overrideDir)
 	}
-	if meta.Overrides["model"] != "opus" {
-		t.Errorf("Overrides[model] = %q, want %q", meta.Overrides["model"], "opus")
+	if meta.Overrides["agent_model"] != "opus" {
+		t.Errorf("Overrides[agent_model] = %q, want %q", meta.Overrides["agent_model"], "opus")
 	}
 }

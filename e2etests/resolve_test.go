@@ -110,7 +110,7 @@ func TestResolve_H2DIRPropagates(t *testing.T) {
 	// Launch a command agent with H2_DIR set.
 	// The daemon fork re-execs the h2 binary; provide a short-lived command
 	// so the daemon has time to create the socket.
-	result := runH2(t, h2Dir, "run", "--command", "sleep 60", "--name", "propagate-test", "--detach")
+	result := runH2(t, h2Dir, "run", "--command", "sleep 60", "propagate-test", "--detach")
 	if result.ExitCode != 0 {
 		// Daemon fork may fail in temp dir environments (socket path length,
 		// binary re-exec). Skip rather than fail.

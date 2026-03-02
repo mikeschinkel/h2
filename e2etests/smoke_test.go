@@ -41,9 +41,8 @@ func TestVersion_ConsistentWithMarker(t *testing.T) {
 	}
 	cmdVersion := strings.TrimSpace(result.Stdout) // e.g. "0.1.0"
 
-	// Marker has "v" prefix, command output does not.
-	if markerVersion != "v"+cmdVersion {
-		t.Errorf("marker version = %q, command version = %q, expected marker to be 'v'+command", markerVersion, cmdVersion)
+	if markerVersion != cmdVersion {
+		t.Errorf("marker version = %q, command version = %q, expected marker to match command output", markerVersion, cmdVersion)
 	}
 }
 

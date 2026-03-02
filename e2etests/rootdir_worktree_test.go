@@ -7,20 +7,20 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // §4.1 Default working_dir (CWD)
 func TestWorkingDir_Default(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
-	createRole(t, h2Dir, "default-cwd", `
-name: default-cwd
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "default-cwd", `
+role_name: default-cwd
+agent_harness: generic
+agent_harness_command: "true"
 instructions: test default working_dir
 `)
 
-	result := runH2(t, h2Dir, "run", "--role", "default-cwd", "--name", "test-default-cwd", "--detach")
+	result := runH2(t, h2Dir, "run", "--role", "default-cwd", "test-default-cwd", "--detach")
 	if result.ExitCode != 0 {
 		t.Fatalf("h2 run failed: exit=%d stderr=%s stdout=%s", result.ExitCode, result.Stderr, result.Stdout)
 	}
@@ -39,16 +39,15 @@ func TestWorkingDir_Absolute(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	absDir := t.TempDir()
 
-	createRole(t, h2Dir, "abs-dir", `
-name: abs-dir
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "abs-dir", `
+role_name: abs-dir
+agent_harness: generic
+agent_harness_command: "true"
 instructions: test absolute working_dir
 working_dir: "`+absDir+`"
 `)
 
-	result := runH2(t, h2Dir, "run", "--role", "abs-dir", "--name", "test-abs-dir", "--detach")
+	result := runH2(t, h2Dir, "run", "--role", "abs-dir", "test-abs-dir", "--detach")
 	if result.ExitCode != 0 {
 		t.Fatalf("h2 run failed: exit=%d stderr=%s stdout=%s", result.ExitCode, result.Stderr, result.Stdout)
 	}
@@ -71,16 +70,15 @@ func TestWorkingDir_Relative(t *testing.T) {
 	projDir := filepath.Join(h2Dir, "projects", "myapp")
 	os.MkdirAll(projDir, 0o755)
 
-	createRole(t, h2Dir, "rel-dir", `
-name: rel-dir
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "rel-dir", `
+role_name: rel-dir
+agent_harness: generic
+agent_harness_command: "true"
 instructions: test relative working_dir
 working_dir: projects/myapp
 `)
 
-	result := runH2(t, h2Dir, "run", "--role", "rel-dir", "--name", "test-rel-dir", "--detach")
+	result := runH2(t, h2Dir, "run", "--role", "rel-dir", "test-rel-dir", "--detach")
 	if result.ExitCode != 0 {
 		t.Fatalf("h2 run failed: exit=%d stderr=%s stdout=%s", result.ExitCode, result.Stderr, result.Stdout)
 	}
@@ -99,19 +97,18 @@ func TestWorktree_NewBranch(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	_ = createGitRepo(t, h2Dir, "projects/myrepo")
 
-	createRole(t, h2Dir, "wt-agent", `
-name: wt-agent
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "wt-agent", `
+role_name: wt-agent
+agent_harness: generic
+agent_harness_command: "true"
 instructions: test worktree agent
-worktree:
-  project_dir: projects/myrepo
-  name: wt-test
-  branch_from: main
+working_dir: projects/myrepo
+worktree_enabled: true
+worktree_name: wt-test
+worktree_branch_from: main
 `)
 
-	result := runH2(t, h2Dir, "run", "--role", "wt-agent", "--name", "wt-test", "--detach")
+	result := runH2(t, h2Dir, "run", "--role", "wt-agent", "wt-test", "--detach")
 	if result.ExitCode != 0 {
 		t.Fatalf("h2 run failed: exit=%d stderr=%s stdout=%s", result.ExitCode, result.Stderr, result.Stdout)
 	}
@@ -160,20 +157,19 @@ func TestWorktree_DetachedHead(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	_ = createGitRepo(t, h2Dir, "projects/myrepo")
 
-	createRole(t, h2Dir, "wt-detached", `
-name: wt-detached
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "wt-detached", `
+role_name: wt-detached
+agent_harness: generic
+agent_harness_command: "true"
 instructions: test detached worktree
-worktree:
-  project_dir: projects/myrepo
-  name: wt-detach
-  branch_from: main
-  use_detached_head: true
+working_dir: projects/myrepo
+worktree_enabled: true
+worktree_name: wt-detach
+worktree_branch_from: main
+worktree_branch: <detached_head>
 `)
 
-	result := runH2(t, h2Dir, "run", "--role", "wt-detached", "--name", "wt-detach", "--detach")
+	result := runH2(t, h2Dir, "run", "--role", "wt-detached", "wt-detach", "--detach")
 	if result.ExitCode != 0 {
 		t.Fatalf("h2 run failed: exit=%d stderr=%s stdout=%s", result.ExitCode, result.Stderr, result.Stdout)
 	}
@@ -207,18 +203,17 @@ func TestWorktree_NonGitProjectDir(t *testing.T) {
 	notGitDir := filepath.Join(h2Dir, "projects", "not-a-repo")
 	os.MkdirAll(notGitDir, 0o755)
 
-	createRole(t, h2Dir, "wt-nogit", `
-name: wt-nogit
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "wt-nogit", `
+role_name: wt-nogit
+agent_harness: generic
+agent_harness_command: "true"
 instructions: test
-worktree:
-  project_dir: projects/not-a-repo
-  name: wt-fail
+working_dir: projects/not-a-repo
+worktree_enabled: true
+worktree_name: wt-fail
 `)
 
-	result := runH2(t, h2Dir, "run", "--role", "wt-nogit", "--name", "wt-fail", "--detach")
+	result := runH2(t, h2Dir, "run", "--role", "wt-nogit", "wt-fail", "--detach")
 	if result.ExitCode == 0 {
 		t.Cleanup(func() { stopAgent(t, h2Dir, "wt-fail") })
 		t.Fatal("expected error for non-git working_dir with worktree enabled")
@@ -235,16 +230,15 @@ func TestWorktree_CorruptWorktreeDir(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	createGitRepo(t, h2Dir, "projects/myrepo")
 
-	createRole(t, h2Dir, "wt-corrupt", `
-name: wt-corrupt
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "wt-corrupt", `
+role_name: wt-corrupt
+agent_harness: generic
+agent_harness_command: "true"
 instructions: test
-worktree:
-  project_dir: projects/myrepo
-  name: wt-corrupt-test
-  branch_from: main
+working_dir: projects/myrepo
+worktree_enabled: true
+worktree_name: wt-corrupt-test
+worktree_branch_from: main
 `)
 
 	// Pre-create a corrupt worktree dir (has files but no .git).
@@ -252,7 +246,7 @@ worktree:
 	os.MkdirAll(corruptDir, 0o755)
 	os.WriteFile(filepath.Join(corruptDir, "stale-file.txt"), []byte("stale"), 0o644)
 
-	result := runH2(t, h2Dir, "run", "--role", "wt-corrupt", "--name", "wt-corrupt-test", "--detach")
+	result := runH2(t, h2Dir, "run", "--role", "wt-corrupt", "wt-corrupt-test", "--detach")
 	if result.ExitCode == 0 {
 		t.Cleanup(func() { stopAgent(t, h2Dir, "wt-corrupt-test") })
 		t.Fatal("expected error for corrupt worktree dir")
@@ -269,20 +263,19 @@ func TestWorktree_ReuseExisting(t *testing.T) {
 	h2Dir := createTestH2Dir(t)
 	createGitRepo(t, h2Dir, "projects/myrepo")
 
-	createRole(t, h2Dir, "wt-reuse", `
-name: wt-reuse
-agent_harness:
-  harness_type: generic
-  command: "true"
+createRole(t, h2Dir, "wt-reuse", `
+role_name: wt-reuse
+agent_harness: generic
+agent_harness_command: "true"
 instructions: test worktree reuse
-worktree:
-  project_dir: projects/myrepo
-  name: wt-reuse-test
-  branch_from: main
+working_dir: projects/myrepo
+worktree_enabled: true
+worktree_name: wt-reuse-test
+worktree_branch_from: main
 `)
 
 	// First run — creates the worktree.
-	result := runH2(t, h2Dir, "run", "--role", "wt-reuse", "--name", "wt-reuse-test", "--detach")
+	result := runH2(t, h2Dir, "run", "--role", "wt-reuse", "wt-reuse-test", "--detach")
 	if result.ExitCode != 0 {
 		t.Fatalf("first h2 run failed: exit=%d stderr=%s stdout=%s", result.ExitCode, result.Stderr, result.Stdout)
 	}
@@ -294,9 +287,17 @@ worktree:
 
 	// Stop the agent.
 	stopAgent(t, h2Dir, "wt-reuse-test")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		status := runH2(t, h2Dir, "status", "wt-reuse-test")
+		if status.ExitCode != 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	// Second run — should reuse the existing worktree.
-	result = runH2(t, h2Dir, "run", "--role", "wt-reuse", "--name", "wt-reuse-test", "--detach")
+	result = runH2(t, h2Dir, "run", "--role", "wt-reuse", "wt-reuse-test", "--detach")
 	if result.ExitCode != 0 {
 		t.Fatalf("second h2 run failed: exit=%d stderr=%s stdout=%s", result.ExitCode, result.Stderr, result.Stdout)
 	}
