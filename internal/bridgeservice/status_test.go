@@ -85,4 +85,3 @@ func TestAllowedCommandsHint(t *testing.T) {
 		}
 	})
 }
-

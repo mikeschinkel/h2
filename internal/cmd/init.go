@@ -581,55 +581,6 @@ func checkSymlinkPreflight(path, target, label string) generatePreflightItem {
 	return generatePreflightItem{Label: label, Status: "exists (file)", Conflict: true}
 }
 
-// writeInstructions writes shared CLAUDE_AND_AGENTS.md and creates profile symlinks.
-func writeInstructions(abs, style string) error {
-	sharedDir := filepath.Join(abs, "account-profiles-shared", "default")
-	sharedMDPath := filepath.Join(sharedDir, "CLAUDE_AND_AGENTS.md")
-	sharedSkillsDir := filepath.Join(sharedDir, "skills")
-	claudeDir := filepath.Join(abs, "claude-config", "default")
-	codexDir := filepath.Join(abs, "codex-config", "default")
-	claudeMDPath := filepath.Join(claudeDir, "CLAUDE.md")
-	agentsMDPath := filepath.Join(codexDir, "AGENTS.md")
-	claudeSkillsPath := filepath.Join(claudeDir, "skills")
-	codexSkillsPath := filepath.Join(codexDir, "skills")
-
-	if err := os.MkdirAll(sharedSkillsDir, 0o755); err != nil {
-		return fmt.Errorf("create shared profile skills dir: %w", err)
-	}
-	if err := config.WriteSkillsTemplate(style, sharedSkillsDir, false); err != nil {
-		return fmt.Errorf("write shared skills: %w", err)
-	}
-	if err := os.WriteFile(sharedMDPath, []byte(config.InstructionsTemplateWithStyle(style)), 0o644); err != nil {
-		return fmt.Errorf("write CLAUDE_AND_AGENTS.md: %w", err)
-	}
-
-	sharedMDTarget := filepath.Join("..", "..", "account-profiles-shared", "default", "CLAUDE_AND_AGENTS.md")
-	sharedSkillsTarget := filepath.Join("..", "..", "account-profiles-shared", "default", "skills")
-	if err := os.Symlink(sharedMDTarget, claudeMDPath); err != nil {
-		return fmt.Errorf("symlink CLAUDE.md: %w", err)
-	}
-	if err := os.Symlink(sharedMDTarget, agentsMDPath); err != nil {
-		return fmt.Errorf("symlink AGENTS.md: %w", err)
-	}
-	if err := os.Symlink(sharedSkillsTarget, claudeSkillsPath); err != nil {
-		return fmt.Errorf("symlink claude skills dir: %w", err)
-	}
-	if err := os.Symlink(sharedSkillsTarget, codexSkillsPath); err != nil {
-		return fmt.Errorf("symlink codex skills dir: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(config.ClaudeSettingsTemplate(style)), 0o644); err != nil {
-		return fmt.Errorf("write claude settings.json: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(codexDir, "requirements.toml"), []byte(config.CodexRequirementsTemplate(style)), 0o644); err != nil {
-		return fmt.Errorf("write codex requirements.toml: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(config.CodexConfigTemplate(style)), 0o644); err != nil {
-		return fmt.Errorf("write codex config.toml: %w", err)
-	}
-
-	return nil
-}
-
 // checkDirSafeForInit checks whether the target directory is safe for init.
 // If the dir doesn't exist, it's safe. If it exists but is empty, it's safe.
 // If it contains files, they must all be expected root-dir files.

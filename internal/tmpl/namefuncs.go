@@ -25,10 +25,10 @@ func NameFuncs(generateName func() string, existingNames []string) template.Func
 	}
 
 	var (
-		mu              sync.Mutex
-		randomCache     string
-		randomResolved  bool
-		autoIncrCache   = map[string]string{} // prefix → result
+		mu             sync.Mutex
+		randomCache    string
+		randomResolved bool
+		autoIncrCache  = map[string]string{} // prefix → result
 	)
 
 	randomNameFn := func() (string, error) {

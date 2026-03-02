@@ -89,7 +89,9 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 			}
 			name = positionalName
 
-			if cmd.Flags().Changed("agent-type") {
+			if cmd.Flags().Changed("command") {
+				// command mode already resolved cmdCommand/cmdArgs above.
+			} else if cmd.Flags().Changed("agent-type") {
 				// Run agent type without a role.
 				cmdCommand = agentType
 			} else {

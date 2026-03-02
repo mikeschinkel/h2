@@ -19,15 +19,15 @@ import (
 // Service manages bridge instances and routes messages between external
 // platforms (Telegram, macOS notifications) and h2 agent sessions.
 type Service struct {
-	bridges         []bridge.Bridge
-	concierge       string   // session name, empty if --no-concierge; guarded by mu
-	socketDir       string   // ~/.h2/sockets/
-	user            string   // "from" field for inbound messages
-	lastSender      string   // tracks last agent who sent outbound
-	lastRoutedAgent string   // tracks last agent an inbound message was delivered to
-	allowedCommands  []string      // slash commands allowed on this bridge
+	bridges            []bridge.Bridge
+	concierge          string        // session name, empty if --no-concierge; guarded by mu
+	socketDir          string        // ~/.h2/sockets/
+	user               string        // "from" field for inbound messages
+	lastSender         string        // tracks last agent who sent outbound
+	lastRoutedAgent    string        // tracks last agent an inbound message was delivered to
+	allowedCommands    []string      // slash commands allowed on this bridge
 	typingTickInterval time.Duration // interval between typing indicator ticks; 0 uses default
-	cancel           context.CancelFunc
+	cancel             context.CancelFunc
 
 	// Status tracking.
 	startTime        time.Time
