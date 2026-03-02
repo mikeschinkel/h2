@@ -6,6 +6,10 @@ variables:
   agent_model:
     description: "Agent model to use"
     default: "<harness-default>"
+  profile:
+    description: "Account profile to use. Must be configured via h2 profile commands."
+    default: "default"
+
   working_dir:
     description: "Working directory for the agent"
     default: "." # . is the directory launched from
@@ -38,6 +42,10 @@ codex_sandbox_mode: danger-full-access
 # Codex approval mode
 # Valid: untrusted, on-request, never
 codex_ask_for_approval: on-request
+
+# Codex account profiles
+profile: "{{ .Var.profile }}"
+
 {{- else if eq .Var.agent_harness "claude_code" -}}
 # Claude Code model
 agent_model: "{{ if eq .Var.agent_model "<harness-default>" -}}opus{{- else -}}{{ .Var.agent_model }}{{- end }}"
@@ -45,6 +53,10 @@ agent_model: "{{ if eq .Var.agent_model "<harness-default>" -}}opus{{- else -}}{
 # Permission mode for Claude Code
 # Valid: default, delegate, acceptEdits, plan, dontAsk, bypassPermissions
 claude_permission_mode: default
+
+# Claude Code account profiles
+profile: "{{ .Var.profile }}"
+
 {{- else -}}
 # Permission mode for Generic Agent
 # agent_harness_command: some-other-binary
