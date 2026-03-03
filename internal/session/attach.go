@@ -144,25 +144,27 @@ func (d *Daemon) readClientInput(conn net.Conn, cl *client.Client) {
 		s := d.Session
 		switch frameType {
 		case message.FrameTypeData:
-			vt := s.VT
-			vt.Mu.Lock()
-			if cl.DebugKeys && len(payload) > 0 {
-				cl.AppendDebugBytes(payload)
-				cl.RenderInputBar()
-			}
-			for i := 0; i < len(payload); {
-				switch cl.Mode {
-				case client.ModePassthrough:
-					i = cl.HandlePassthroughBytes(payload, i, len(payload))
-				case client.ModeMenu:
-					i = cl.HandleMenuBytes(payload, i, len(payload))
-				case client.ModeScroll, client.ModePassthroughScroll:
-					i = cl.HandleScrollBytes(payload, i, len(payload))
-				default:
-					i = cl.HandleDefaultBytes(payload, i, len(payload))
+			func() {
+				vt := s.VT
+				vt.Mu.Lock()
+				defer vt.Mu.Unlock()
+				if cl.DebugKeys && len(payload) > 0 {
+					cl.AppendDebugBytes(payload)
+					cl.RenderInputBar()
 				}
-			}
-			vt.Mu.Unlock()
+				for i := 0; i < len(payload); {
+					switch cl.Mode {
+					case client.ModePassthrough:
+						i = cl.HandlePassthroughBytes(payload, i, len(payload))
+					case client.ModeMenu:
+						i = cl.HandleMenuBytes(payload, i, len(payload))
+					case client.ModeScroll, client.ModePassthroughScroll:
+						i = cl.HandleScrollBytes(payload, i, len(payload))
+					default:
+						i = cl.HandleDefaultBytes(payload, i, len(payload))
+					}
+				}
+			}()
 
 		case message.FrameTypeControl:
 			var ctrl message.ResizeControl
@@ -170,27 +172,29 @@ func (d *Daemon) readClientInput(conn net.Conn, cl *client.Client) {
 				continue
 			}
 			if ctrl.Type == "resize" && ctrl.Rows >= 3 && ctrl.Cols >= 1 {
-				vt := s.VT
-				vt.Mu.Lock()
-				cl.TermRows = ctrl.Rows
-				cl.TermCols = ctrl.Cols
-				childRows := ctrl.Rows - cl.ReservedRows()
-				vt.Resize(ctrl.Rows, ctrl.Cols, childRows)
-				if cl.IsScrollMode() {
-					cl.ClampScrollOffset()
-				}
-				cl.Output.Write([]byte("\033[2J"))
-				cl.RenderScreen()
-				cl.RenderBar()
-				// Clear and re-render other clients at the new dimensions.
-				d.Session.ForEachClient(func(existing *client.Client) {
-					if existing != cl {
-						existing.Output.Write([]byte("\033[2J"))
-						existing.RenderScreen()
-						existing.RenderBar()
+				func() {
+					vt := s.VT
+					vt.Mu.Lock()
+					defer vt.Mu.Unlock()
+					cl.TermRows = ctrl.Rows
+					cl.TermCols = ctrl.Cols
+					childRows := ctrl.Rows - cl.ReservedRows()
+					vt.Resize(ctrl.Rows, ctrl.Cols, childRows)
+					if cl.IsScrollMode() {
+						cl.ClampScrollOffset()
 					}
-				})
-				vt.Mu.Unlock()
+					cl.Output.Write([]byte("\033[2J"))
+					cl.RenderScreen()
+					cl.RenderBar()
+					// Clear and re-render other clients at the new dimensions.
+					d.Session.ForEachClient(func(existing *client.Client) {
+						if existing != cl {
+							existing.Output.Write([]byte("\033[2J"))
+							existing.RenderScreen()
+							existing.RenderBar()
+						}
+					})
+				}()
 			}
 		}
 	}
