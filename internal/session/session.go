@@ -3,9 +3,12 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"sync"
@@ -655,6 +658,18 @@ func (s *Session) RunInteractive() error {
 func (s *Session) lifecycleLoop(stopStatus chan struct{}, interactive bool) error {
 	for {
 		err := s.VT.Cmd.Wait()
+
+		// Log child exit to daemon stderr for debugging.
+		if err != nil {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
+				log.Printf("child process exited (code %d): %s [command=%s]", exitErr.ExitCode(), exitErr, s.Command)
+			} else {
+				log.Printf("child process exited with error: %v [command=%s]", err, s.Command)
+			}
+		} else {
+			log.Printf("child process exited (code 0) [command=%s]", s.Command)
+		}
 
 		// If the user explicitly chose Quit, exit immediately.
 		if s.Quit {
