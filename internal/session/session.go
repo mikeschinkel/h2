@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -489,12 +490,19 @@ func (s *Session) RunDaemon() error {
 	s.AddClient(s.Client)
 
 	// Set up delivery callback (queue count update → status bar only).
+	// Uses defer unlock + recover so a render panic cannot kill the
+	// delivery goroutine or deadlock the VT mutex.
 	s.OnDeliver = func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Fprintf(os.Stderr, "panic recovered in OnDeliver (daemon): %v\n%s\n", r, debug.Stack())
+			}
+		}()
 		s.VT.Mu.Lock()
+		defer s.VT.Mu.Unlock()
 		s.ForEachClient(func(cl *client.Client) {
 			cl.RenderStatusBar()
 		})
-		s.VT.Mu.Unlock()
 	}
 
 	// Set up agent: activity logger, adapter, launch config.
@@ -591,12 +599,19 @@ func (s *Session) RunInteractive() error {
 	s.VT.InputSrc = os.Stdin
 
 	// Set up delivery callback (queue count update → status bar only).
+	// Uses defer unlock + recover so a render panic cannot kill the
+	// delivery goroutine or deadlock the VT mutex.
 	s.OnDeliver = func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Fprintf(os.Stderr, "panic recovered in OnDeliver (interactive): %v\n%s\n", r, debug.Stack())
+			}
+		}()
 		s.VT.Mu.Lock()
+		defer s.VT.Mu.Unlock()
 		s.ForEachClient(func(cl *client.Client) {
 			cl.RenderStatusBar()
 		})
-		s.VT.Mu.Unlock()
 	}
 
 	// Set up agent: activity logger, adapter, launch config.
@@ -647,14 +662,16 @@ func (s *Session) lifecycleLoop(stopStatus chan struct{}, interactive bool) erro
 			return err
 		}
 
-		s.VT.Mu.Lock()
-		s.VT.ChildExited = true
-		s.VT.ExitError = err
-		s.ForEachClient(func(cl *client.Client) {
-			cl.RenderScreen()
-			cl.RenderBar()
-		})
-		s.VT.Mu.Unlock()
+		func() {
+			s.VT.Mu.Lock()
+			defer s.VT.Mu.Unlock()
+			s.VT.ChildExited = true
+			s.VT.ExitError = err
+			s.ForEachClient(func(cl *client.Client) {
+				cl.RenderScreen()
+				cl.RenderBar()
+			})
+		}()
 
 		s.SignalExit()
 		s.Queue.Pause()
@@ -679,18 +696,20 @@ func (s *Session) lifecycleLoop(stopStatus chan struct{}, interactive bool) erro
 			s.VT.ResetScanState()
 			s.VT.ResetScrollHistory()
 
-			s.VT.Mu.Lock()
-			s.VT.ChildExited = false
-			s.VT.ChildHung = false
-			s.VT.ExitError = nil
-			s.VT.LastOut = time.Now()
-			s.ForEachClient(func(cl *client.Client) {
-				cl.ScrollOffset = 0
-				cl.Output.Write([]byte("\033[2J\033[H"))
-				cl.RenderScreen()
-				cl.RenderBar()
-			})
-			s.VT.Mu.Unlock()
+			func() {
+				s.VT.Mu.Lock()
+				defer s.VT.Mu.Unlock()
+				s.VT.ChildExited = false
+				s.VT.ChildHung = false
+				s.VT.ExitError = nil
+				s.VT.LastOut = time.Now()
+				s.ForEachClient(func(cl *client.Client) {
+					cl.ScrollOffset = 0
+					cl.Output.Write([]byte("\033[2J\033[H"))
+					cl.RenderScreen()
+					cl.RenderBar()
+				})
+			}()
 
 			go s.VT.PipeOutput(s.pipeOutputCallback())
 
@@ -707,17 +726,26 @@ func (s *Session) lifecycleLoop(stopStatus chan struct{}, interactive bool) erro
 }
 
 // TickStatus triggers periodic status bar renders for all connected clients.
+// Runs as a long-lived goroutine; uses per-tick panic recovery so a
+// single bad render cannot kill the ticker or deadlock the VT mutex.
 func (s *Session) TickStatus(stop <-chan struct{}) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			s.VT.Mu.Lock()
-			s.ForEachClient(func(cl *client.Client) {
-				cl.RenderStatusBar()
-			})
-			s.VT.Mu.Unlock()
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						fmt.Fprintf(os.Stderr, "panic recovered in Session.TickStatus: %v\n%s\n", r, debug.Stack())
+					}
+				}()
+				s.VT.Mu.Lock()
+				defer s.VT.Mu.Unlock()
+				s.ForEachClient(func(cl *client.Client) {
+					cl.RenderStatusBar()
+				})
+			}()
 		case <-stop:
 			return
 		}

@@ -41,93 +41,101 @@ func (d *Daemon) handleAttach(conn net.Conn, req *message.Request) {
 	vt := s.VT
 
 	// Set up per-client output for this connection.
-	vt.Mu.Lock()
-	cl.Output = &frameWriter{conn: conn}
-	if vt.OscFg == "" && req.OscFg != "" {
-		vt.OscFg = req.OscFg
-	}
-	if vt.OscBg == "" && req.OscBg != "" {
-		vt.OscBg = req.OscBg
-	}
-	if os.Getenv("COLORFGBG") == "" && req.ColorFGBG != "" {
-		_ = os.Setenv("COLORFGBG", req.ColorFGBG)
-	}
-
-	// Resize PTY to client's terminal size, but only if dimensions actually
-	// changed. Unnecessary resizes send SIGWINCH to the child, which can
-	// cause a screen clear + redraw race that produces a blank screen.
-	if req.Cols > 0 && req.Rows > 0 {
-		cl.TermRows = req.Rows
-		cl.TermCols = req.Cols
-		childRows := req.Rows - cl.ReservedRows()
-		if req.Rows != vt.Rows || req.Cols != vt.Cols || childRows != vt.ChildRows {
-			vt.Resize(req.Rows, req.Cols, childRows)
-			// Clear and re-render existing clients so they don't retain
-			// a ghost status bar from the old (larger) dimensions.
-			d.Session.ForEachClient(func(existing *client.Client) {
-				if existing != cl {
-					existing.Output.Write([]byte("\033[2J"))
-					existing.RenderScreen()
-					existing.RenderBar()
-				}
-			})
+	// Uses defer unlock so the mutex is released even if a render call panics
+	// (handleConn has a recover that would catch the panic, but without defer
+	// the mutex would stay locked, deadlocking the entire session).
+	func() {
+		vt.Mu.Lock()
+		defer vt.Mu.Unlock()
+		cl.Output = &frameWriter{conn: conn}
+		if vt.OscFg == "" && req.OscFg != "" {
+			vt.OscFg = req.OscFg
 		}
-	}
+		if vt.OscBg == "" && req.OscBg != "" {
+			vt.OscBg = req.OscBg
+		}
+		if os.Getenv("COLORFGBG") == "" && req.ColorFGBG != "" {
+			_ = os.Setenv("COLORFGBG", req.ColorFGBG)
+		}
 
-	// Set detach callback to close the client connection.
-	cl.OnDetach = func() { conn.Close() }
+		// Resize PTY to client's terminal size, but only if dimensions actually
+		// changed. Unnecessary resizes send SIGWINCH to the child, which can
+		// cause a screen clear + redraw race that produces a blank screen.
+		if req.Cols > 0 && req.Rows > 0 {
+			cl.TermRows = req.Rows
+			cl.TermCols = req.Cols
+			childRows := req.Rows - cl.ReservedRows()
+			if req.Rows != vt.Rows || req.Cols != vt.Cols || childRows != vt.ChildRows {
+				vt.Resize(req.Rows, req.Cols, childRows)
+				// Clear and re-render existing clients so they don't retain
+				// a ghost status bar from the old (larger) dimensions.
+				d.Session.ForEachClient(func(existing *client.Client) {
+					if existing != cl {
+						existing.Output.Write([]byte("\033[2J"))
+						existing.RenderScreen()
+						existing.RenderBar()
+					}
+				})
+			}
+		}
 
-	// Enable mouse reporting and render the current screen.
-	// RenderScreen clears each line individually (\033[2K), so a full
-	// screen clear (\033[2J) is unnecessary and would cause a visible flash.
-	cl.Output.Write([]byte("\033[?1000h\033[?1006h"))
-	cl.RenderScreen()
-	cl.RenderBar()
-	vt.Mu.Unlock()
+		// Set detach callback to close the client connection.
+		cl.OnDetach = func() { conn.Close() }
+
+		// Enable mouse reporting and render the current screen.
+		// RenderScreen clears each line individually (\033[2K), so a full
+		// screen clear (\033[2J) is unnecessary and would cause a visible flash.
+		cl.Output.Write([]byte("\033[?1000h\033[?1006h"))
+		cl.RenderScreen()
+		cl.RenderBar()
+	}()
 
 	// Read input frames from client until disconnect.
 	d.readClientInput(conn, cl)
 
 	// Client disconnected — detach. Disable mouse on this client's output.
-	vt.Mu.Lock()
-	cl.OnDetach = nil
-	cl.Output.Write([]byte("\033[?1000l\033[?1006l"))
+	// Uses defer unlock so the mutex is released even if cleanup panics.
+	func() {
+		vt.Mu.Lock()
+		defer vt.Mu.Unlock()
+		cl.OnDetach = nil
+		cl.Output.Write([]byte("\033[?1000l\033[?1006l"))
 
-	// Release passthrough ownership if this client held it.
-	if s.PassthroughOwner == cl {
-		s.PassthroughOwner = nil
-		s.Queue.Unpause()
-	}
+		// Release passthrough ownership if this client held it.
+		if s.PassthroughOwner == cl {
+			s.PassthroughOwner = nil
+			s.Queue.Unpause()
+		}
 
-	// Remove this client from the session.
-	s.RemoveClient(cl)
+		// Remove this client from the session.
+		s.RemoveClient(cl)
 
-	// Resize VT to fit remaining clients and re-render. Use the minimum
-	// dimensions so all clients can display the full content (standard
-	// terminal multiplexer behavior). When the smaller window detaches,
-	// the remaining clients reclaim their full terminal area.
-	var minRows, minCols, reservedRows int
-	s.ForEachClient(func(c *client.Client) {
-		if c.TermRows <= 0 || c.TermCols <= 0 {
-			return // skip clients without known dimensions (e.g. daemon placeholder)
-		}
-		if minRows == 0 || c.TermRows < minRows {
-			minRows = c.TermRows
-		}
-		if minCols == 0 || c.TermCols < minCols {
-			minCols = c.TermCols
-		}
-		reservedRows = c.ReservedRows()
-	})
-	if minRows > 0 && minCols > 0 && (minRows != vt.Rows || minCols != vt.Cols) {
-		vt.Resize(minRows, minCols, minRows-reservedRows)
+		// Resize VT to fit remaining clients and re-render. Use the minimum
+		// dimensions so all clients can display the full content (standard
+		// terminal multiplexer behavior). When the smaller window detaches,
+		// the remaining clients reclaim their full terminal area.
+		var minRows, minCols, reservedRows int
 		s.ForEachClient(func(c *client.Client) {
-			c.Output.Write([]byte("\033[2J"))
-			c.RenderScreen()
-			c.RenderBar()
+			if c.TermRows <= 0 || c.TermCols <= 0 {
+				return // skip clients without known dimensions (e.g. daemon placeholder)
+			}
+			if minRows == 0 || c.TermRows < minRows {
+				minRows = c.TermRows
+			}
+			if minCols == 0 || c.TermCols < minCols {
+				minCols = c.TermCols
+			}
+			reservedRows = c.ReservedRows()
 		})
-	}
-	vt.Mu.Unlock()
+		if minRows > 0 && minCols > 0 && (minRows != vt.Rows || minCols != vt.Cols) {
+			vt.Resize(minRows, minCols, minRows-reservedRows)
+			s.ForEachClient(func(c *client.Client) {
+				c.Output.Write([]byte("\033[2J"))
+				c.RenderScreen()
+				c.RenderBar()
+			})
+		}
+	}()
 
 	_ = attach // keep reference alive for the duration
 }

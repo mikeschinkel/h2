@@ -1,9 +1,11 @@
 package client
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"sync"
 	"syscall"
 	"time"
@@ -102,6 +104,8 @@ func (c *Client) InitClient() {
 }
 
 // ReadInput reads keyboard input and dispatches to the current mode handler.
+// Runs as a long-lived goroutine; uses per-iteration panic recovery so a
+// single bad input chunk cannot kill the input loop or deadlock the VT mutex.
 func (c *Client) ReadInput() {
 	buf := make([]byte, 256)
 	for {
@@ -110,37 +114,53 @@ func (c *Client) ReadInput() {
 			return
 		}
 
-		c.VT.Mu.Lock()
-		if c.DebugKeys && n > 0 {
-			c.AppendDebugBytes(buf[:n])
-			c.RenderInputBar()
-		}
-		for i := 0; i < n; {
-			switch c.Mode {
-			case ModePassthrough:
-				i = c.HandlePassthroughBytes(buf, i, n)
-			case ModeMenu:
-				i = c.HandleMenuBytes(buf, i, n)
-			case ModeScroll, ModePassthroughScroll:
-				i = c.HandleScrollBytes(buf, i, n)
-			default:
-				i = c.HandleDefaultBytes(buf, i, n)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Fprintf(os.Stderr, "panic recovered in ReadInput: %v\n%s\n", r, debug.Stack())
+				}
+			}()
+			c.VT.Mu.Lock()
+			defer c.VT.Mu.Unlock()
+			if c.DebugKeys && n > 0 {
+				c.AppendDebugBytes(buf[:n])
+				c.RenderInputBar()
 			}
-		}
-		c.VT.Mu.Unlock()
+			for i := 0; i < n; {
+				switch c.Mode {
+				case ModePassthrough:
+					i = c.HandlePassthroughBytes(buf, i, n)
+				case ModeMenu:
+					i = c.HandleMenuBytes(buf, i, n)
+				case ModeScroll, ModePassthroughScroll:
+					i = c.HandleScrollBytes(buf, i, n)
+				default:
+					i = c.HandleDefaultBytes(buf, i, n)
+				}
+			}
+		}()
 	}
 }
 
 // TickStatus triggers periodic status bar renders.
+// Runs as a long-lived goroutine; uses per-tick panic recovery so a
+// single bad render cannot kill the ticker or deadlock the VT mutex.
 func (c *Client) TickStatus(stop <-chan struct{}) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			c.VT.Mu.Lock()
-			c.RenderStatusBar()
-			c.VT.Mu.Unlock()
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						fmt.Fprintf(os.Stderr, "panic recovered in client.TickStatus: %v\n%s\n", r, debug.Stack())
+					}
+				}()
+				c.VT.Mu.Lock()
+				defer c.VT.Mu.Unlock()
+				c.RenderStatusBar()
+			}()
 		case <-stop:
 			return
 		}
@@ -148,6 +168,8 @@ func (c *Client) TickStatus(stop <-chan struct{}) {
 }
 
 // WatchResize handles SIGWINCH.
+// Runs as a long-lived goroutine; uses per-signal panic recovery so a
+// single bad resize cannot kill the handler or deadlock the VT mutex.
 func (c *Client) WatchResize(sigCh <-chan os.Signal) {
 	for range sigCh {
 		fd := int(os.Stdin.Fd())
@@ -160,17 +182,24 @@ func (c *Client) WatchResize(sigCh <-chan os.Signal) {
 			continue
 		}
 
-		c.VT.Mu.Lock()
-		c.TermRows = rows
-		c.TermCols = cols
-		c.VT.Resize(rows, cols, rows-c.ReservedRows())
-		if c.IsScrollMode() {
-			c.ClampScrollOffset()
-		}
-		c.Output.Write([]byte("\033[2J"))
-		c.RenderScreen()
-		c.RenderBar()
-		c.VT.Mu.Unlock()
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Fprintf(os.Stderr, "panic recovered in WatchResize: %v\n%s\n", r, debug.Stack())
+				}
+			}()
+			c.VT.Mu.Lock()
+			defer c.VT.Mu.Unlock()
+			c.TermRows = rows
+			c.TermCols = cols
+			c.VT.Resize(rows, cols, rows-c.ReservedRows())
+			if c.IsScrollMode() {
+				c.ClampScrollOffset()
+			}
+			c.Output.Write([]byte("\033[2J"))
+			c.RenderScreen()
+			c.RenderBar()
+		}()
 	}
 }
 
@@ -228,11 +257,13 @@ func (c *Client) SetupInteractiveTerminal() (cleanup func(), stopStatus chan str
 	go c.TickStatus(stopStatus)
 
 	// Draw initial UI.
-	c.VT.Mu.Lock()
-	c.Output.Write([]byte("\033[2J\033[H"))
-	c.RenderScreen()
-	c.RenderBar()
-	c.VT.Mu.Unlock()
+	func() {
+		c.VT.Mu.Lock()
+		defer c.VT.Mu.Unlock()
+		c.Output.Write([]byte("\033[2J\033[H"))
+		c.RenderScreen()
+		c.RenderBar()
+	}()
 
 	// Process user keyboard input.
 	go c.ReadInput()
