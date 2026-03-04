@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"h2/internal/config"
 	"h2/internal/session/agent/harness"
 	"h2/internal/session/agent/monitor"
 )
@@ -234,6 +235,19 @@ func TestPrepareForLaunch_WithSessionID(t *testing.T) {
 
 	if h.SessionID() != "custom-session-id" {
 		t.Errorf("SessionID() = %q, want %q", h.SessionID(), "custom-session-id")
+	}
+}
+
+func TestPrepareForLaunch_SetsSessionLogPath(t *testing.T) {
+	h := New(harness.HarnessConfig{}, nil)
+	_, err := h.PrepareForLaunch("test-agent", "custom-session-id", true)
+	if err != nil {
+		t.Fatalf("PrepareForLaunch: %v", err)
+	}
+
+	want := filepath.Join(config.SessionDir("test-agent"), "session.jsonl")
+	if h.sessionLogPath != want {
+		t.Fatalf("sessionLogPath = %q, want %q", h.sessionLogPath, want)
 	}
 }
 

@@ -134,6 +134,7 @@ func (h *ClaudeCodeHarness) PrepareForLaunch(agentName, sessionID string, dryRun
 	} else {
 		h.sessionID = uuid.New().String()
 	}
+	h.sessionLogPath = resolveSessionLogPath(agentName, h.sessionID)
 	h.eventHandler.SetExpectedSessionID(h.sessionID)
 	h.eventHandler.ConfigureDebug(resolveDebugPath(agentName, h.sessionID))
 
@@ -239,6 +240,14 @@ func resolveSessionDir(agentName, sessionID string) string {
 		return config.SessionDir(agentName)
 	}
 	return config.FindSessionDirByID(sessionID)
+}
+
+func resolveSessionLogPath(agentName, sessionID string) string {
+	sessionDir := resolveSessionDir(agentName, sessionID)
+	if sessionDir == "" {
+		return ""
+	}
+	return filepath.Join(sessionDir, "session.jsonl")
 }
 
 func resolveDebugPath(agentName, sessionID string) string {
