@@ -73,6 +73,12 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 				if dryRun {
 					return fmt.Errorf("--dry-run is not supported with --resume")
 				}
+				// Reject flags that don't apply to resume.
+				for _, flag := range []string{"var", "override", "pod"} {
+					if cmd.Flags().Changed(flag) {
+						return fmt.Errorf("--%s cannot be used with --resume", flag)
+					}
+				}
 				return runResume(cmd, args, detach)
 			}
 

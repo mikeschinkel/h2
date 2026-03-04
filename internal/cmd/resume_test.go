@@ -60,6 +60,33 @@ func TestRunResume_MutuallyExclusiveWithRole(t *testing.T) {
 	}
 }
 
+func TestRunResume_RejectsIncompatibleFlags(t *testing.T) {
+	t.Setenv("CLAUDECODE", "")
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"var", []string{"agent", "--resume", "--var", "x=1"}, "--var cannot be used with --resume"},
+		{"override", []string{"agent", "--resume", "--override", "x=1"}, "--override cannot be used with --resume"},
+		{"pod", []string{"agent", "--resume", "--pod", "p1"}, "--pod cannot be used with --resume"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newRunCmd()
+			cmd.SetArgs(tt.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("expected error for --resume with --%s", tt.name)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error = %q, want containing %q", err.Error(), tt.want)
+			}
+		})
+	}
+}
+
 func TestRunResume_RejectsDryRun(t *testing.T) {
 	t.Setenv("CLAUDECODE", "")
 
