@@ -46,6 +46,34 @@ func TestRunResume_RequiresName(t *testing.T) {
 	}
 }
 
+func TestRunResume_MutuallyExclusiveWithRole(t *testing.T) {
+	t.Setenv("CLAUDECODE", "")
+
+	cmd := newRunCmd()
+	cmd.SetArgs([]string{"some-agent", "--resume", "--role", "concierge"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for --resume with --role")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("error = %q, want containing 'mutually exclusive'", err.Error())
+	}
+}
+
+func TestRunResume_RejectsDryRun(t *testing.T) {
+	t.Setenv("CLAUDECODE", "")
+
+	cmd := newRunCmd()
+	cmd.SetArgs([]string{"some-agent", "--resume", "--dry-run"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for --resume with --dry-run")
+	}
+	if !strings.Contains(err.Error(), "not supported with --resume") {
+		t.Errorf("error = %q, want containing 'not supported with --resume'", err.Error())
+	}
+}
+
 func TestRunResume_NoSessionMetadata(t *testing.T) {
 	t.Setenv("CLAUDECODE", "")
 

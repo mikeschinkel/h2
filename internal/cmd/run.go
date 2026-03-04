@@ -50,22 +50,6 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 				return fmt.Errorf("running inside a Claude Code session (CLAUDECODE is set); use --detach to avoid hijacking the parent terminal")
 			}
 
-			// Handle --resume mode early — it's a separate path from normal run.
-			if resume {
-				return runResume(cmd, args, detach)
-			}
-
-			// Validate pod name if provided.
-			if pod != "" {
-				if err := config.ValidatePodName(pod); err != nil {
-					return err
-				}
-			}
-
-			var cmdCommand string
-			var cmdArgs []string
-			var heartbeat session.DaemonHeartbeat
-
 			// Check mutual exclusivity of mode flags.
 			modeFlags := 0
 			if cmd.Flags().Changed("role") {
@@ -83,6 +67,25 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 			if modeFlags > 1 {
 				return fmt.Errorf("--role, --agent-type, --command, and --resume are mutually exclusive")
 			}
+
+			// Handle --resume mode — it's a separate path from normal run.
+			if resume {
+				if dryRun {
+					return fmt.Errorf("--dry-run is not supported with --resume")
+				}
+				return runResume(cmd, args, detach)
+			}
+
+			// Validate pod name if provided.
+			if pod != "" {
+				if err := config.ValidatePodName(pod); err != nil {
+					return err
+				}
+			}
+
+			var cmdCommand string
+			var cmdArgs []string
+			var heartbeat session.DaemonHeartbeat
 
 			// Positional name is supported for role/agent-type modes.
 			var positionalName string
