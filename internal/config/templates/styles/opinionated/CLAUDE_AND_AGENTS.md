@@ -166,6 +166,10 @@ before closing them out. Comment on the bead to track this - i.e. initial work i
 done, waiting on review, incorporating changes after review, etc. until it's closed.
 Close your bead when the work is done.
 
+ALWAYS commit beads when creating, updating, or updating status. If the change is
+that the work in the bead was completed, commit the bead status change alongside
+the code that did the work.
+
 #### Rules for creating beads
 
 1. Don't decompose tasks too small. Each task should be substantial enough
