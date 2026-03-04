@@ -62,6 +62,10 @@ func (h *CodexHarness) Name() string           { return "codex" }
 func (h *CodexHarness) Command() string        { return "codex" }
 func (h *CodexHarness) DisplayCommand() string { return "codex" }
 
+// --- Resume ---
+
+func (h *CodexHarness) SupportsResume() bool { return false }
+
 // --- Config (called before launch) ---
 
 // BuildCommandArgs maps role config to Codex CLI flags, combined with

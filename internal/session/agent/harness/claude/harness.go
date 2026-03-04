@@ -65,12 +65,23 @@ func (h *ClaudeCodeHarness) Name() string           { return "claude_code" }
 func (h *ClaudeCodeHarness) Command() string        { return "claude" }
 func (h *ClaudeCodeHarness) DisplayCommand() string { return "claude" }
 
+// --- Resume ---
+
+func (h *ClaudeCodeHarness) SupportsResume() bool { return true }
+
 // --- Config (called before launch) ---
 
 // BuildCommandArgs maps role config to Claude Code CLI flags, combined with
 // PrependArgs and ExtraArgs into the complete child process argument list.
+// When ResumeSessionID is set, only --resume is emitted — Claude Code
+// restores all other settings (model, instructions, etc.) from the session.
 func (h *ClaudeCodeHarness) BuildCommandArgs(cfg harness.CommandArgsConfig) []string {
 	var roleArgs []string
+	if cfg.ResumeSessionID != "" {
+		// Resume mode: only pass --resume, no other flags.
+		roleArgs = append(roleArgs, "--resume", cfg.ResumeSessionID)
+		return harness.CombineArgs(cfg, roleArgs)
+	}
 	if cfg.SessionID != "" {
 		roleArgs = append(roleArgs, "--session-id", cfg.SessionID)
 	}

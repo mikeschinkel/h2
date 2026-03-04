@@ -15,6 +15,7 @@ import (
 func newDaemonCmd() *cobra.Command {
 	var name string
 	var sessionID string
+	var resumeSessionID string
 	var roleName string
 	var sessionDir string
 	var instructions string
@@ -67,6 +68,7 @@ func newDaemonCmd() *cobra.Command {
 			err := session.RunDaemon(session.RunDaemonOpts{
 				Name:                 name,
 				SessionID:            sessionID,
+				ResumeSessionID:      resumeSessionID,
 				Command:              args[0],
 				Args:                 args[1:],
 				RoleName:             roleName,
@@ -95,6 +97,7 @@ func newDaemonCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&name, "name", "", "Agent name")
 	cmd.Flags().StringVar(&sessionID, "session-id", "", "Claude Code session ID")
+	cmd.Flags().StringVar(&resumeSessionID, "resume-session-id", "", "Previous session ID to resume")
 	cmd.Flags().StringVar(&roleName, "role", "", "Role name")
 	cmd.Flags().StringVar(&sessionDir, "session-dir", "", "Session directory path")
 	cmd.Flags().StringVar(&instructions, "instructions", "", "Role instructions to pass via --append-system-prompt")

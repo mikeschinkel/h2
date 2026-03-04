@@ -38,6 +38,7 @@ type Session struct {
 	Command              string
 	Args                 []string
 	SessionID            string   // Claude Code session ID (UUID), set for claude commands
+	ResumeSessionID      string   // if set, resume this previous session instead of starting fresh
 	RoleName             string   // Role name, if launched with --role
 	SessionDir           string   // Session directory path (~/.h2/sessions/<name>/)
 	WorkingDir           string   // Working directory for the child process/session
@@ -289,6 +290,7 @@ func (s *Session) childArgs() []string {
 		PrependArgs:          s.prependArgs,
 		ExtraArgs:            s.Args,
 		SessionID:            s.SessionID,
+		ResumeSessionID:      s.ResumeSessionID,
 		Instructions:         s.Instructions,
 		SystemPrompt:         s.SystemPrompt,
 		Model:                s.Model,

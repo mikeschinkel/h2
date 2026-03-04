@@ -35,6 +35,7 @@ type DaemonHeartbeat struct {
 type RunDaemonOpts struct {
 	Name                 string
 	SessionID            string
+	ResumeSessionID      string // if set, resume this Claude session instead of starting fresh
 	Command              string
 	Args                 []string
 	RoleName             string
@@ -57,6 +58,7 @@ type RunDaemonOpts struct {
 func RunDaemon(opts RunDaemonOpts) error {
 	s := New(opts.Name, opts.Command, opts.Args)
 	s.SessionID = opts.SessionID
+	s.ResumeSessionID = opts.ResumeSessionID
 	s.RoleName = opts.RoleName
 	s.SessionDir = opts.SessionDir
 	s.Instructions = opts.Instructions
@@ -109,6 +111,8 @@ func RunDaemon(opts RunDaemonOpts) error {
 			Command:         opts.Command,
 			Role:            opts.RoleName,
 			Overrides:       opts.Overrides,
+			HarnessType:     opts.HarnessType,
+			Pod:             os.Getenv("H2_POD"),
 			StartedAt:       s.StartTime.UTC().Format(time.RFC3339),
 		}
 		if err := config.WriteSessionMetadata(s.SessionDir, meta); err != nil {
@@ -195,6 +199,7 @@ func gitStats() *gitDiffStats {
 type ForkDaemonOpts struct {
 	Name                 string
 	SessionID            string
+	ResumeSessionID      string // if set, resume this session instead of starting fresh
 	Command              string
 	Args                 []string
 	RoleName             string
@@ -228,6 +233,9 @@ func ForkDaemon(opts ForkDaemonOpts) error {
 	}
 
 	daemonArgs := []string{"_daemon", "--name", opts.Name, "--session-id", opts.SessionID}
+	if opts.ResumeSessionID != "" {
+		daemonArgs = append(daemonArgs, "--resume-session-id", opts.ResumeSessionID)
+	}
 	if opts.RoleName != "" {
 		daemonArgs = append(daemonArgs, "--role", opts.RoleName)
 	}

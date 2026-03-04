@@ -77,6 +77,8 @@ type SessionMetadata struct {
 	Command         string            `json:"command"`
 	Role            string            `json:"role,omitempty"`
 	Overrides       map[string]string `json:"overrides,omitempty"`
+	HarnessType     string            `json:"harness_type,omitempty"`
+	Pod             string            `json:"pod,omitempty"`
 	StartedAt       string            `json:"started_at"`
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"h2/internal/config"
 	"h2/internal/session"
+	"h2/internal/session/agent/harness"
 	"h2/internal/socketdir"
 	"h2/internal/tmpl"
 )
@@ -18,6 +19,7 @@ func newRunCmd() *cobra.Command {
 	var name string
 	var detach bool
 	var dryRun bool
+	var resume bool
 	var roleName string
 	var agentType string
 	var command string
@@ -38,13 +40,19 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
   h2 run coder-1 --role concierge
                                 Use a specific role with explicit agent name
   h2 run --agent-type claude    Run an agent type without a role
-  h2 run --command "vim"        Run an explicit command`,
+  h2 run --command "vim"        Run an explicit command
+  h2 run coder-1 --resume       Resume a previous agent session`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Safety check: when running inside a Claude Code session,
 			// require --detach to prevent hijacking the parent's terminal.
 			// Skip for --dry-run since it doesn't launch anything.
 			if os.Getenv("CLAUDECODE") != "" && !detach && !dryRun {
 				return fmt.Errorf("running inside a Claude Code session (CLAUDECODE is set); use --detach to avoid hijacking the parent terminal")
+			}
+
+			// Handle --resume mode early — it's a separate path from normal run.
+			if resume {
+				return runResume(cmd, args, detach)
 			}
 
 			// Validate pod name if provided.
@@ -69,8 +77,11 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 			if cmd.Flags().Changed("command") {
 				modeFlags++
 			}
+			if resume {
+				modeFlags++
+			}
 			if modeFlags > 1 {
-				return fmt.Errorf("--role, --agent-type, and --command are mutually exclusive")
+				return fmt.Errorf("--role, --agent-type, --command, and --resume are mutually exclusive")
 			}
 
 			// Positional name is supported for role/agent-type modes.
@@ -221,6 +232,7 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 
 	cmd.Flags().BoolVar(&detach, "detach", false, "Don't auto-attach after starting")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show resolved config without launching")
+	cmd.Flags().BoolVar(&resume, "resume", false, "Resume a previous agent session")
 	cmd.Flags().StringVar(&roleName, "role", "", "Role to use (defaults to 'default')")
 	cmd.Flags().StringVar(&agentType, "agent-type", "", "Agent type to run without a role (e.g. claude)")
 	cmd.Flags().StringVar(&command, "command", "", "Explicit command to run without a role")
@@ -229,6 +241,104 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 	cmd.Flags().StringArrayVar(&varFlags, "var", nil, "Set template variable (key=value, repeatable)")
 
 	return cmd
+}
+
+// runResume handles the `h2 run <name> --resume` flow. It reads session
+// metadata from a previous run, checks the agent isn't still alive, resolves
+// the harness (to verify resume support), and forks a new daemon that passes
+// --resume <session-id> to Claude Code instead of starting a fresh session.
+func runResume(cmd *cobra.Command, args []string, detach bool) error {
+	if len(args) == 0 {
+		return fmt.Errorf("--resume requires an agent name (e.g. h2 run <name> --resume)")
+	}
+	if len(args) > 1 {
+		return fmt.Errorf("--resume accepts exactly one agent name, got %d", len(args))
+	}
+	name := args[0]
+
+	// Read session metadata from the previous run.
+	sessionDir := config.SessionDir(name)
+	meta, err := config.ReadSessionMetadata(sessionDir)
+	if err != nil {
+		return fmt.Errorf("no session found for agent %q: %w", name, err)
+	}
+	if meta.SessionID == "" {
+		return fmt.Errorf("session metadata for %q has no session ID", name)
+	}
+
+	// Check socket liveness: error if agent is still running, clean up stale socket.
+	if err := ensureAgentSocketAvailable(name); err != nil {
+		return fmt.Errorf("agent %q is still running; use 'h2 attach %s' instead", name, name)
+	}
+
+	// Resolve harness type to check resume support.
+	harnessType := meta.HarnessType
+	if harnessType == "" {
+		// Fall back to inferring from command for older metadata that didn't store harness_type.
+		harnessType = inferHarnessType(meta.Command)
+	}
+	h, err := harness.Resolve(harness.HarnessConfig{
+		HarnessType: harnessType,
+		Command:     meta.Command,
+	}, nil)
+	if err != nil {
+		return fmt.Errorf("resolve harness for resume: %w", err)
+	}
+	if !h.SupportsResume() {
+		return fmt.Errorf("agent %q uses harness %q which does not support --resume", name, harnessType)
+	}
+
+	// Ensure the harness config dir exists (e.g. Claude's CLAUDE_CONFIG_DIR).
+	if meta.ClaudeConfigDir != "" {
+		if err := config.EnsureClaudeConfigDir(meta.ClaudeConfigDir); err != nil {
+			return fmt.Errorf("ensure config dir: %w", err)
+		}
+	}
+
+	// Generate a new session ID for this h2 daemon instance.
+	sessionID := uuid.New().String()
+	colorHints := detectTerminalHints()
+
+	// Fork daemon with resume.
+	if err := forkDaemonFunc(session.ForkDaemonOpts{
+		Name:             name,
+		SessionID:        sessionID,
+		ResumeSessionID:  meta.SessionID,
+		Command:          meta.Command,
+		SessionDir:       sessionDir,
+		HarnessType:      harnessType,
+		HarnessConfigDir: meta.ClaudeConfigDir,
+		CWD:              meta.CWD,
+		Pod:              meta.Pod,
+		OscFg:            colorHints.OscFg,
+		OscBg:            colorHints.OscBg,
+		ColorFGBG:        colorHints.ColorFGBG,
+		Term:             colorHints.Term,
+		ColorTerm:        colorHints.ColorTerm,
+	}); err != nil {
+		return err
+	}
+
+	if detach {
+		fmt.Fprintf(os.Stderr, "Agent %q resumed (detached). Use 'h2 attach %s' to connect.\n", name, name)
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "Agent %q resumed. Attaching...\n", name)
+	return doAttach(name)
+}
+
+// inferHarnessType maps a command name to a harness type for older metadata
+// that didn't store harness_type explicitly.
+func inferHarnessType(command string) string {
+	switch command {
+	case "claude":
+		return "claude_code"
+	case "codex":
+		return "codex"
+	default:
+		return "generic"
+	}
 }
 
 // getExistingAgentNames returns the names of currently running agents.

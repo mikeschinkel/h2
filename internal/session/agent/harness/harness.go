@@ -75,6 +75,9 @@ type Harness interface {
 	// (e.g. "<PORT>") may be used for dynamic fields.
 	PrepareForLaunch(agentName, sessionID string, dryRun bool) (LaunchConfig, error)
 
+	// Resume support.
+	SupportsResume() bool // whether this harness supports --resume
+
 	// Runtime (called after child process starts)
 	Start(ctx context.Context, events chan<- monitor.AgentEvent) error
 	HandleHookEvent(eventName string, payload json.RawMessage) bool
@@ -104,6 +107,7 @@ type CommandArgsConfig struct {
 
 	// Role config fields mapped to CLI flags by each harness.
 	SessionID            string
+	ResumeSessionID      string // if set, resume this session instead of starting fresh
 	Instructions         string
 	SystemPrompt         string
 	Model                string

@@ -41,6 +41,10 @@ func (g *GenericHarness) Name() string           { return "generic" }
 func (g *GenericHarness) Command() string        { return g.command }
 func (g *GenericHarness) DisplayCommand() string { return g.command }
 
+// --- Resume ---
+
+func (g *GenericHarness) SupportsResume() bool { return false }
+
 // --- Config (no-ops for generic) ---
 
 func (g *GenericHarness) BuildCommandArgs(cfg harness.CommandArgsConfig) []string {
