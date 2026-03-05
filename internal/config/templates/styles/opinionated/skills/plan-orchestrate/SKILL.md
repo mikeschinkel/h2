@@ -159,14 +159,69 @@ If a review round reveals a missing component that needs its own plan doc:
 4. Incorporate the catch-up review findings
 5. The new doc then joins the regular round cycle going forward
 
-## Phase 4: Sign-Off
+## Phase 4: Plan Review Sign-Off
+
+When the review cycle has converged, the orchestrator verifies and stamps each plan doc before declaring it approved.
+
+### Step 1: Verify Open Questions Resolved
+
+For each plan doc, search for an `Open Questions` or `Open Issues` section. If one exists:
+1. Every question must have a resolution documented inline (e.g., "**Resolved**: ...") or the question must have been removed during incorporation
+2. If any open questions remain unresolved, the doc is **not ready for sign-off** — assign an agent to resolve them (discuss with reviewers, make a decision, update the doc) and run one more review round on just those docs
+3. A doc CANNOT be approved with unresolved open questions
+
+### Step 2: Update Status and Append Sign-Off Section
+
+For each doc that passes the open questions check:
+
+1. Update the `Status:` line at the top of the doc to `Approved`
+2. Append a `## Plan Review Signoff` section at the bottom of the doc:
+
+```markdown
+---
+
+## Plan Review Signoff
+
+- **Status**: Approved
+- **Date**: {YYYY-MM-DD}
+- **Branch**: {branch-name}
+- **Commit**: {HEAD commit hash}
+- **Review rounds**: {N}
+- **Total findings**: {N} (R1: {n}, R2: {n}, ...)
+- **Finding breakdown**: {n} P0, {n} P1, {n} P2, {n} P3
+- **Incorporation rate**: {N}% ({incorporated}/{total})
+- **Not incorporated**: {list with rationale, or "None"}
+- **Open questions**: All resolved
+- **Reviewers**: {list of reviewer agent names}
+```
+
+3. Commit the updated docs
+
+### Step 3: Report to User
 
 Present the final summary to the user (via `h2 send`):
+- Total docs approved
 - Total rounds, total findings, incorporation rate
 - Convergence trajectory (the round-by-round trend)
 - Any remaining "Not Incorporated" items with rationale
 - Final corpus metrics (doc count, line count)
 - Recommendation: ready for implementation, or needs more work
+
+### Plan Doc Status State Machine
+
+For reference, the full lifecycle of a plan doc status:
+
+```
+Draft → In Review → Approved → Implementation → Implementation Complete
+```
+
+| Status | Set By | Meaning |
+|--------|--------|---------|
+| **Draft** | `plan-draft` | Initial writing complete |
+| **In Review** | `plan-orchestrate` Phase 3 | Review cycle in progress (may include round info, e.g., "In Review (R2)") |
+| **Approved** | `plan-orchestrate` Phase 4 | Review converged, all open questions resolved, `## Plan Review Signoff` appended |
+| **Implementation** | `plan-to-beads` | Implementation beads created, work in progress |
+| **Implementation Complete** | `plan-work-completion-signoff` | Code verified against plan, `## Completion Signoff` appended |
 
 ## Beads Integration
 
