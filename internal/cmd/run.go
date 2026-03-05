@@ -275,52 +275,14 @@ func runResume(cmd *cobra.Command, args []string, detach bool, dryRun bool) erro
 	}
 	name := args[0]
 
-	// Read RuntimeConfig from the previous run. Both old (SessionMetadata)
-	// and new (RuntimeConfig) formats use session.metadata.json. We detect
-	// the format before deciding how to handle errors: if the file contains
-	// RuntimeConfig-only keys, validation failures are surfaced directly.
-	// Otherwise, we treat it as legacy SessionMetadata.
+	// Read RuntimeConfig from the previous run.
 	sessionDir := config.SessionDir(name)
-	rc, rcErr := config.ReadRuntimeConfig(sessionDir)
-	if rcErr != nil {
-		if os.IsNotExist(rcErr) {
-			return fmt.Errorf("no session found for agent %q: %w", name, rcErr)
+	rc, err := config.ReadRuntimeConfig(sessionDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("no session found for agent %q: %w", name, err)
 		}
-		// File exists but ReadRuntimeConfig failed. Default to fail-loud
-		// (assume RuntimeConfig format). Only fall back to legacy parse
-		// when we positively detect legacy-specific markers.
-		if !config.IsLegacySessionMetadata(sessionDir) {
-			// Not legacy — fail loud with the RuntimeConfig error.
-			return fmt.Errorf("session config for agent %q is invalid: %w", name, rcErr)
-		}
-		// Legacy format detected: parse as SessionMetadata and convert.
-		meta, metaErr := config.ReadSessionMetadata(sessionDir)
-		if metaErr != nil {
-			return fmt.Errorf("session config for agent %q is unreadable: %w", name, rcErr)
-		}
-		if meta.SessionID == "" {
-			return fmt.Errorf("session metadata for %q has no session ID", name)
-		}
-		harnessType := meta.HarnessType
-		if harnessType == "" {
-			harnessType = inferHarnessType(meta.Command)
-		}
-		rc = &config.RuntimeConfig{
-			AgentName:        name,
-			SessionID:        meta.SessionID,
-			RoleName:         meta.Role,
-			Pod:              meta.Pod,
-			HarnessType:      harnessType,
-			HarnessConfigDir: meta.ClaudeConfigDir,
-			Command:          meta.Command,
-			CWD:              meta.CWD,
-			StartedAt:        meta.StartedAt,
-			Overrides:        meta.Overrides,
-		}
-	}
-
-	if rc.SessionID == "" {
-		return fmt.Errorf("session metadata for %q has no session ID", name)
+		return fmt.Errorf("session config for agent %q is invalid: %w", name, err)
 	}
 
 	// Check socket liveness: error if agent is still running, clean up stale socket.
@@ -328,20 +290,16 @@ func runResume(cmd *cobra.Command, args []string, detach bool, dryRun bool) erro
 		return fmt.Errorf("agent %q is still running; use 'h2 attach %s' instead", name, name)
 	}
 
-	// Resolve harness type to check resume support.
-	harnessType := rc.HarnessType
-	if harnessType == "" {
-		harnessType = inferHarnessType(rc.Command)
-	}
+	// Resolve harness to check resume support.
 	h, err := harness.Resolve(harness.HarnessConfig{
-		HarnessType: harnessType,
+		HarnessType: rc.HarnessType,
 		Command:     rc.Command,
 	}, nil)
 	if err != nil {
 		return fmt.Errorf("resolve harness for resume: %w", err)
 	}
 	if !h.SupportsResume() {
-		return fmt.Errorf("agent %q uses harness %q which does not support --resume", name, harnessType)
+		return fmt.Errorf("agent %q uses harness %q which does not support --resume", name, rc.HarnessType)
 	}
 
 	// Ensure the harness config dir exists (e.g. Claude's CLAUDE_CONFIG_DIR).
@@ -358,7 +316,7 @@ func runResume(cmd *cobra.Command, args []string, detach bool, dryRun bool) erro
 		})
 		fmt.Printf("Resume Agent: %s\n", name)
 		fmt.Printf("Previous Session ID: %s\n", rc.SessionID)
-		fmt.Printf("Harness: %s\n", harnessType)
+		fmt.Printf("Harness: %s\n", rc.HarnessType)
 		fmt.Printf("Working Dir: %s\n", rc.CWD)
 		if rc.Pod != "" {
 			fmt.Printf("Pod: %s\n", rc.Pod)
@@ -419,19 +377,6 @@ func runResume(cmd *cobra.Command, args []string, detach bool, dryRun bool) erro
 
 	fmt.Fprintf(os.Stderr, "Agent %q resumed. Attaching...\n", name)
 	return doAttach(name)
-}
-
-// inferHarnessType maps a command name to a harness type for older metadata
-// that didn't store harness_type explicitly.
-func inferHarnessType(command string) string {
-	switch command {
-	case "claude":
-		return "claude_code"
-	case "codex":
-		return "codex"
-	default:
-		return "generic"
-	}
 }
 
 // getExistingAgentNames returns the names of currently running agents.

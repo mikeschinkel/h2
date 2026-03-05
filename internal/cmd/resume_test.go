@@ -26,20 +26,6 @@ func writeTestRuntimeConfig(t *testing.T, name string, rc *config.RuntimeConfig)
 	return sessionDir
 }
 
-// writeTestSessionMetadata creates a session dir with legacy SessionMetadata for testing.
-func writeTestSessionMetadata(t *testing.T, name string, meta config.SessionMetadata) string {
-	t.Helper()
-	sessionDir := config.SessionDir(name)
-	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
-		t.Fatalf("create session dir: %v", err)
-	}
-	t.Cleanup(func() { os.RemoveAll(sessionDir) })
-	if err := config.WriteSessionMetadata(sessionDir, meta); err != nil {
-		t.Fatalf("write session metadata: %v", err)
-	}
-	return sessionDir
-}
-
 func TestRunResume_RequiresName(t *testing.T) {
 	// Unset CLAUDECODE so the safety check doesn't block.
 	t.Setenv("CLAUDECODE", "")
@@ -160,24 +146,30 @@ func TestRunResume_NoSessionMetadata(t *testing.T) {
 	}
 }
 
-func TestRunResume_EmptySessionID(t *testing.T) {
+func TestRunResume_InvalidConfig(t *testing.T) {
 	t.Setenv("CLAUDECODE", "")
 
-	name := "resume-test-empty-sid"
-	// Use legacy SessionMetadata with empty session ID.
-	writeTestSessionMetadata(t, name, config.SessionMetadata{
-		AgentName: name,
-		Command:   "claude",
-	})
+	name := "resume-test-invalid"
+	sessionDir := config.SessionDir(name)
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatalf("create session dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sessionDir) })
+
+	// Write a file missing required fields — should fail validation.
+	metaPath := filepath.Join(sessionDir, "session.metadata.json")
+	if err := os.WriteFile(metaPath, []byte(`{"agent_name":"test"}`), 0o644); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
 
 	cmd := newRunCmd()
 	cmd.SetArgs([]string{name, "--resume", "--detach"})
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatal("expected error for empty session ID")
+		t.Fatal("expected error for invalid config")
 	}
-	if !strings.Contains(err.Error(), "no session ID") {
-		t.Errorf("error = %q, want containing 'no session ID'", err.Error())
+	if !strings.Contains(err.Error(), "invalid") {
+		t.Errorf("error = %q, want containing 'invalid'", err.Error())
 	}
 }
 
@@ -275,65 +267,6 @@ func TestRunResume_ForksDaemonWithResumeSessionID(t *testing.T) {
 	}
 	if rc.CWD != tmpDir {
 		t.Errorf("CWD = %q, want %q", rc.CWD, tmpDir)
-	}
-}
-
-func TestRunResume_InfersHarnessTypeFromCommand(t *testing.T) {
-	t.Setenv("CLAUDECODE", "")
-
-	name := "resume-test-infer"
-	tmpDir := t.TempDir()
-	claudeConfigDir := filepath.Join(tmpDir, "claude-config")
-	os.MkdirAll(claudeConfigDir, 0o755)
-
-	// Create legacy metadata without harness_type (simulates old metadata).
-	writeTestSessionMetadata(t, name, config.SessionMetadata{
-		AgentName:       name,
-		SessionID:       "old-uuid",
-		Command:         "claude",
-		ClaudeConfigDir: claudeConfigDir,
-		CWD:             tmpDir,
-	})
-
-	var capturedSessionDir string
-	origFork := forkDaemonFunc
-	forkDaemonFunc = func(sd string, hints session.TerminalHints) error {
-		capturedSessionDir = sd
-		return nil
-	}
-	defer func() { forkDaemonFunc = origFork }()
-
-	cmd := newRunCmd()
-	cmd.SetArgs([]string{name, "--resume", "--detach"})
-	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Verify harness type was inferred and written to RuntimeConfig.
-	rc, err := config.ReadRuntimeConfig(capturedSessionDir)
-	if err != nil {
-		t.Fatalf("read runtime config: %v", err)
-	}
-	if rc.HarnessType != "claude_code" {
-		t.Errorf("HarnessType = %q, want %q (inferred from command)", rc.HarnessType, "claude_code")
-	}
-}
-
-func TestInferHarnessType(t *testing.T) {
-	tests := []struct {
-		command string
-		want    string
-	}{
-		{"claude", "claude_code"},
-		{"codex", "codex"},
-		{"vim", "generic"},
-		{"", "generic"},
-	}
-	for _, tt := range tests {
-		if got := inferHarnessType(tt.command); got != tt.want {
-			t.Errorf("inferHarnessType(%q) = %q, want %q", tt.command, got, tt.want)
-		}
 	}
 }
 

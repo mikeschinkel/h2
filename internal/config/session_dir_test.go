@@ -24,11 +24,17 @@ func TestFindSessionDirByID(t *testing.T) {
 		t.Fatalf("mkdir b: %v", err)
 	}
 
-	if err := WriteSessionMetadata(aDir, SessionMetadata{AgentName: "agent-a", SessionID: "sid-a"}); err != nil {
-		t.Fatalf("write metadata a: %v", err)
+	if err := WriteRuntimeConfig(aDir, &RuntimeConfig{
+		AgentName: "agent-a", SessionID: "sid-a", HarnessType: "claude_code",
+		Command: "claude", CWD: "/tmp",
+	}); err != nil {
+		t.Fatalf("write config a: %v", err)
 	}
-	if err := WriteSessionMetadata(bDir, SessionMetadata{AgentName: "agent-b", SessionID: "sid-b"}); err != nil {
-		t.Fatalf("write metadata b: %v", err)
+	if err := WriteRuntimeConfig(bDir, &RuntimeConfig{
+		AgentName: "agent-b", SessionID: "sid-b", HarnessType: "claude_code",
+		Command: "claude", CWD: "/tmp",
+	}); err != nil {
+		t.Fatalf("write config b: %v", err)
 	}
 
 	if got := FindSessionDirByID("sid-b"); got != bDir {
@@ -60,8 +66,11 @@ func TestFindSessionDirByID_IgnoresBadMetadata(t *testing.T) {
 		t.Fatalf("mkdir bad: %v", err)
 	}
 
-	if err := WriteSessionMetadata(validDir, SessionMetadata{AgentName: "valid", SessionID: "sid-ok"}); err != nil {
-		t.Fatalf("write metadata valid: %v", err)
+	if err := WriteRuntimeConfig(validDir, &RuntimeConfig{
+		AgentName: "valid", SessionID: "sid-ok", HarnessType: "claude_code",
+		Command: "claude", CWD: "/tmp",
+	}); err != nil {
+		t.Fatalf("write config valid: %v", err)
 	}
 	badMetaPath := filepath.Join(badDir, "session.metadata.json")
 	if err := os.WriteFile(badMetaPath, []byte("{"), 0o644); err != nil {

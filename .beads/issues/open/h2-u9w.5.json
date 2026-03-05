@@ -1,0 +1,23 @@
+{
+  "id": "h2-u9w.5",
+  "title": "Remove legacy SessionMetadata fallback from resume path",
+  "description": "Remove the legacy SessionMetadata fallback in runResume(), IsLegacySessionMetadata(), inferHarnessType(), SessionMetadata struct, and all related code. Per user instruction: if the format doesn't match RuntimeConfig and fields are missing, just fail. No backward compat shims.",
+  "status": "in_progress",
+  "priority": 2,
+  "type": "task",
+  "parent": "h2-u9w",
+  "dependencies": [
+    {
+      "id": "h2-u9w",
+      "type": "parent-child"
+    }
+  ],
+  "created_by": "Danny Cosson",
+  "owner": "dcosson@gmail.com",
+  "labels": [
+    "project=h2"
+  ],
+  "assignee": "mild-cloud",
+  "created_at": "2026-03-05T11:43:47.469738-08:00",
+  "updated_at": "2026-03-05T11:43:51.228246-08:00"
+}

@@ -243,28 +243,31 @@ func TestParseOverrides(t *testing.T) {
 	}
 }
 
-func TestOverridesRecordedInMetadata(t *testing.T) {
+func TestOverridesRecordedInRuntimeConfig(t *testing.T) {
 	dir := t.TempDir()
 
 	overrides := map[string]string{
 		"working_dir":      "/workspace",
 		"worktree_enabled": "true",
 	}
-	meta := SessionMetadata{
-		AgentName: "test-agent",
-		SessionID: "test-session",
-		Role:      "coder",
-		Overrides: overrides,
-		StartedAt: "2026-01-01T00:00:00Z",
+	rc := &RuntimeConfig{
+		AgentName:   "test-agent",
+		SessionID:   "test-session",
+		RoleName:    "coder",
+		HarnessType: "claude_code",
+		Command:     "claude",
+		CWD:         "/tmp",
+		Overrides:   overrides,
+		StartedAt:   "2026-01-01T00:00:00Z",
 	}
 
-	if err := WriteSessionMetadata(dir, meta); err != nil {
-		t.Fatalf("WriteSessionMetadata: %v", err)
+	if err := WriteRuntimeConfig(dir, rc); err != nil {
+		t.Fatalf("WriteRuntimeConfig: %v", err)
 	}
 
-	got, err := ReadSessionMetadata(dir)
+	got, err := ReadRuntimeConfig(dir)
 	if err != nil {
-		t.Fatalf("ReadSessionMetadata: %v", err)
+		t.Fatalf("ReadRuntimeConfig: %v", err)
 	}
 
 	if len(got.Overrides) != 2 {
@@ -278,22 +281,25 @@ func TestOverridesRecordedInMetadata(t *testing.T) {
 	}
 }
 
-func TestMetadataWithoutOverrides(t *testing.T) {
+func TestRuntimeConfigWithoutOverrides(t *testing.T) {
 	dir := t.TempDir()
 
-	meta := SessionMetadata{
-		AgentName: "test-agent",
-		SessionID: "test-session",
-		StartedAt: "2026-01-01T00:00:00Z",
+	rc := &RuntimeConfig{
+		AgentName:   "test-agent",
+		SessionID:   "test-session",
+		HarnessType: "claude_code",
+		Command:     "claude",
+		CWD:         "/tmp",
+		StartedAt:   "2026-01-01T00:00:00Z",
 	}
 
-	if err := WriteSessionMetadata(dir, meta); err != nil {
-		t.Fatalf("WriteSessionMetadata: %v", err)
+	if err := WriteRuntimeConfig(dir, rc); err != nil {
+		t.Fatalf("WriteRuntimeConfig: %v", err)
 	}
 
-	got, err := ReadSessionMetadata(dir)
+	got, err := ReadRuntimeConfig(dir)
 	if err != nil {
-		t.Fatalf("ReadSessionMetadata: %v", err)
+		t.Fatalf("ReadRuntimeConfig: %v", err)
 	}
 
 	if got.Overrides != nil {

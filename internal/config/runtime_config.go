@@ -63,10 +63,6 @@ type RuntimeConfig struct {
 
 	// Timestamps.
 	StartedAt string `json:"started_at"`
-
-	// --- Deprecated fields for backward compatibility on read ---
-	// ClaudeConfigDir was the old field name; migrated to HarnessConfigDir on load.
-	ClaudeConfigDir string `json:"claude_config_dir,omitempty"`
 }
 
 const runtimeConfigFilename = "session.metadata.json"
@@ -123,7 +119,7 @@ func WriteRuntimeConfig(sessionDir string, rc *RuntimeConfig) error {
 }
 
 // ReadRuntimeConfig reads and validates the RuntimeConfig from a session directory.
-// Performs deprecated field migration and strict validation of required fields.
+// Returns an error if the file is missing, malformed, or has missing required fields.
 func ReadRuntimeConfig(sessionDir string) (*RuntimeConfig, error) {
 	path := filepath.Join(sessionDir, runtimeConfigFilename)
 	data, err := os.ReadFile(path)
@@ -133,12 +129,6 @@ func ReadRuntimeConfig(sessionDir string) (*RuntimeConfig, error) {
 	var rc RuntimeConfig
 	if err := json.Unmarshal(data, &rc); err != nil {
 		return nil, fmt.Errorf("parse runtime config: %w", err)
-	}
-
-	// One-time migrations for renamed fields.
-	if rc.HarnessConfigDir == "" && rc.ClaudeConfigDir != "" {
-		rc.HarnessConfigDir = rc.ClaudeConfigDir
-		rc.ClaudeConfigDir = ""
 	}
 
 	if err := rc.Validate(); err != nil {
@@ -173,28 +163,6 @@ func (rc *RuntimeConfig) Validate() error {
 		return fmt.Errorf("invalid runtime config: missing required fields: %s", strings.Join(missing, ", "))
 	}
 	return nil
-}
-
-// IsLegacySessionMetadata checks whether session.metadata.json in the given
-// directory is in the legacy SessionMetadata format (vs new RuntimeConfig).
-// Returns true only when a legacy-specific marker is positively detected:
-// the file has "claude_config_dir" but NOT "harness_config_dir". This avoids
-// false negatives for new RuntimeConfig files that only contain required fields.
-// Returns false (assume RuntimeConfig) if the file can't be read or parsed.
-func IsLegacySessionMetadata(sessionDir string) bool {
-	path := filepath.Join(sessionDir, runtimeConfigFilename)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return false
-	}
-	// Legacy SessionMetadata has "claude_config_dir" but never "harness_config_dir".
-	_, hasClaudeConfigDir := raw["claude_config_dir"]
-	_, hasHarnessConfigDir := raw["harness_config_dir"]
-	return hasClaudeConfigDir && !hasHarnessConfigDir
 }
 
 // ParseHeartbeatIdleTimeout parses the HeartbeatIdleTimeout string as a Go duration.

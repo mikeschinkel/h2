@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 )
 
 // SessionsDir returns the directory where agent session dirs are created (~/.h2/sessions/).
@@ -18,9 +17,8 @@ func SessionDir(agentName string) string {
 	return filepath.Join(SessionsDir(), agentName)
 }
 
-// FindSessionDirByID returns the session directory whose metadata contains
-// the given session ID. Checks RuntimeConfig first, falls back to legacy
-// SessionMetadata. Empty string means not found.
+// FindSessionDirByID returns the session directory whose RuntimeConfig contains
+// the given session ID. Empty string means not found.
 func FindSessionDirByID(sessionID string) string {
 	if sessionID == "" {
 		return ""
@@ -36,12 +34,7 @@ func FindSessionDirByID(sessionID string) string {
 			continue
 		}
 		dir := filepath.Join(root, entry.Name())
-		// Try RuntimeConfig first.
 		if rc, err := ReadRuntimeConfig(dir); err == nil && rc.SessionID == sessionID {
-			return dir
-		}
-		// Fall back to legacy SessionMetadata.
-		if meta, err := ReadSessionMetadata(dir); err == nil && meta != nil && meta.SessionID == sessionID {
 			return dir
 		}
 	}
@@ -67,54 +60,6 @@ func SetupSessionDir(agentName string, role *Role) (string, error) {
 	}
 
 	return sessionDir, nil
-}
-
-// SessionMetadata holds metadata about a running session, written to
-// ~/.h2/sessions/<name>/session.metadata.json for use by h2 peek and other tools.
-type SessionMetadata struct {
-	AgentName       string            `json:"agent_name"`
-	SessionID       string            `json:"session_id"`
-	ClaudeConfigDir string            `json:"claude_config_dir"`
-	CWD             string            `json:"cwd"`
-	Command         string            `json:"command"`
-	Role            string            `json:"role,omitempty"`
-	Overrides       map[string]string `json:"overrides,omitempty"`
-	HarnessType     string            `json:"harness_type,omitempty"`
-	Pod             string            `json:"pod,omitempty"`
-	StartedAt       string            `json:"started_at"`
-}
-
-// WriteSessionMetadata writes session.metadata.json to the session directory.
-func WriteSessionMetadata(sessionDir string, meta SessionMetadata) error {
-	if sessionDir == "" {
-		return nil
-	}
-	if meta.StartedAt == "" {
-		meta.StartedAt = time.Now().UTC().Format(time.RFC3339)
-	}
-	data, err := json.MarshalIndent(meta, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal session metadata: %w", err)
-	}
-	path := filepath.Join(sessionDir, "session.metadata.json")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("write session metadata: %w", err)
-	}
-	return nil
-}
-
-// ReadSessionMetadata reads session.metadata.json from a session directory.
-func ReadSessionMetadata(sessionDir string) (*SessionMetadata, error) {
-	path := filepath.Join(sessionDir, "session.metadata.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var meta SessionMetadata
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, fmt.Errorf("parse session metadata: %w", err)
-	}
-	return &meta, nil
 }
 
 // EnsureClaudeConfigDir creates the shared Claude config directory and writes

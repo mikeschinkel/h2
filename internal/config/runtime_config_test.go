@@ -109,10 +109,6 @@ func TestWriteReadRuntimeConfig_RoundTrip(t *testing.T) {
 	if got.StartedAt != rc.StartedAt {
 		t.Errorf("StartedAt = %q, want %q", got.StartedAt, rc.StartedAt)
 	}
-	// Deprecated field should not be set after round-trip.
-	if got.ClaudeConfigDir != "" {
-		t.Errorf("ClaudeConfigDir should be empty after round-trip, got %q", got.ClaudeConfigDir)
-	}
 }
 
 func TestReadRuntimeConfig_ValidationRejectsMissingRequired(t *testing.T) {
@@ -195,35 +191,6 @@ func TestReadRuntimeConfig_ValidWithAllRequired(t *testing.T) {
 	}
 	if got.AgentName != "a" {
 		t.Errorf("AgentName = %q, want %q", got.AgentName, "a")
-	}
-}
-
-func TestReadRuntimeConfig_MigratesClaudeConfigDir(t *testing.T) {
-	dir := t.TempDir()
-	// Simulate old metadata with claude_config_dir but no harness_config_dir.
-	old := map[string]any{
-		"agent_name":        "old-agent",
-		"session_id":        "old-session",
-		"harness_type":      "claude_code",
-		"command":           "claude",
-		"cwd":               "/home/user/project",
-		"claude_config_dir": "/home/user/.h2/claude-config/default",
-		"started_at":        "2026-01-01T00:00:00Z",
-	}
-	data, _ := json.MarshalIndent(old, "", "  ")
-	if err := os.WriteFile(filepath.Join(dir, runtimeConfigFilename), data, 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	got, err := ReadRuntimeConfig(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.HarnessConfigDir != "/home/user/.h2/claude-config/default" {
-		t.Errorf("HarnessConfigDir = %q, want migrated value", got.HarnessConfigDir)
-	}
-	if got.ClaudeConfigDir != "" {
-		t.Errorf("ClaudeConfigDir should be cleared after migration, got %q", got.ClaudeConfigDir)
 	}
 }
 
@@ -388,68 +355,6 @@ func TestParseHeartbeatIdleTimeout_Invalid(t *testing.T) {
 	_, err := rc.ParseHeartbeatIdleTimeout()
 	if err == nil {
 		t.Fatal("expected error for invalid duration")
-	}
-}
-
-func TestIsLegacySessionMetadata_NewFormat(t *testing.T) {
-	dir := t.TempDir()
-	rc := &RuntimeConfig{
-		AgentName:    "test",
-		SessionID:    "uuid",
-		HarnessType:  "claude_code",
-		Command:      "claude",
-		CWD:          "/tmp",
-		Instructions: "Do things",
-	}
-	if err := WriteRuntimeConfig(dir, rc); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if IsLegacySessionMetadata(dir) {
-		t.Error("expected IsLegacySessionMetadata=false for RuntimeConfig file")
-	}
-}
-
-func TestIsLegacySessionMetadata_NewFormatMinimalFields(t *testing.T) {
-	// RuntimeConfig with only required fields (no optional runtime-only keys).
-	dir := t.TempDir()
-	rc := &RuntimeConfig{
-		AgentName:   "test",
-		SessionID:   "uuid",
-		HarnessType: "generic",
-		Command:     "bash",
-		CWD:         "/tmp",
-	}
-	if err := WriteRuntimeConfig(dir, rc); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if IsLegacySessionMetadata(dir) {
-		t.Error("expected IsLegacySessionMetadata=false for minimal RuntimeConfig")
-	}
-}
-
-func TestIsLegacySessionMetadata_LegacyFormat(t *testing.T) {
-	dir := t.TempDir()
-	legacy := `{
-		"agent_name": "test",
-		"session_id": "uuid",
-		"claude_config_dir": "/some/path",
-		"cwd": "/tmp",
-		"command": "claude",
-		"role": "default",
-		"started_at": "2026-01-01T00:00:00Z"
-	}`
-	if err := os.WriteFile(filepath.Join(dir, runtimeConfigFilename), []byte(legacy), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if !IsLegacySessionMetadata(dir) {
-		t.Error("expected IsLegacySessionMetadata=true for legacy SessionMetadata file")
-	}
-}
-
-func TestIsLegacySessionMetadata_NoFile(t *testing.T) {
-	dir := t.TempDir()
-	if IsLegacySessionMetadata(dir) {
-		t.Error("expected IsLegacySessionMetadata=false when file doesn't exist")
 	}
 }
 
