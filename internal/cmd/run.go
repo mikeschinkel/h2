@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -315,6 +316,7 @@ func runResume(cmd *cobra.Command, args []string, detach bool, dryRun bool) erro
 			ResumeSessionID: rc.SessionID,
 		})
 		fmt.Printf("Resume Agent: %s\n", name)
+		fmt.Printf("Config File: %s\n", filepath.Join(sessionDir, "session.metadata.json"))
 		fmt.Printf("Previous Session ID: %s\n", rc.SessionID)
 		fmt.Printf("Harness: %s\n", rc.HarnessType)
 		fmt.Printf("Working Dir: %s\n", rc.CWD)
