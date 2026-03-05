@@ -142,10 +142,17 @@ func doSetupAndForkAgent(name string, role *config.Role, detach bool, pod string
 	sessionID := uuid.New().String()
 
 	// Build RuntimeConfig with all resolved values.
+	// For Claude Code, h2 passes --session-id so HarnessSessionID equals SessionID.
+	// For other harnesses (Codex), the harness reports its own session ID async
+	// via OTEL and the daemon writes it to HarnessSessionID when received.
+	harnessSessionID := ""
+	if roleCfg.HarnessType == "claude_code" {
+		harnessSessionID = sessionID
+	}
 	rc := &config.RuntimeConfig{
 		AgentName:        name,
 		SessionID:        sessionID,
-		HarnessSessionID: sessionID, // For Claude Code, h2 passes --session-id so they're the same.
+		HarnessSessionID: harnessSessionID,
 		RoleName:         role.RoleName,
 		Pod:              pod,
 		HarnessType:      roleCfg.HarnessType,

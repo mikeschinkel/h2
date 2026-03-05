@@ -213,10 +213,15 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 			}
 
 			// Build and write RuntimeConfig.
+			// Only set HarnessSessionID for Claude Code (h2 passes --session-id).
+			harnessSessionID := ""
+			if hcfg.HarnessType == "claude_code" {
+				harnessSessionID = sessionID
+			}
 			rc := &config.RuntimeConfig{
 				AgentName:        name,
 				SessionID:        sessionID,
-				HarnessSessionID: sessionID, // For Claude Code, h2 passes --session-id so they're the same.
+				HarnessSessionID: harnessSessionID,
 				HarnessType:      hcfg.HarnessType,
 				HarnessConfigDir: hcfg.ConfigDir,
 				Command:          cmdCommand,
