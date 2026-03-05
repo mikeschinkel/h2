@@ -2,22 +2,27 @@ package session
 
 import (
 	"testing"
+
+	"h2/internal/config"
 )
 
-func TestRunDaemonOpts_InstructionsStoredOnSession(t *testing.T) {
-	// Verify that RunDaemon stores Instructions on the Session.
+func TestRuntimeConfig_FieldsStoredOnSession(t *testing.T) {
+	// Verify that RunDaemon populates Session fields from RuntimeConfig.
 	// We can't call RunDaemon directly (it starts sockets/PTY), but we can
 	// verify the field threading by constructing the same way RunDaemon does.
-	opts := RunDaemonOpts{
-		Name:         "test-agent",
+	rc := &config.RuntimeConfig{
+		AgentName:    "test-agent",
 		SessionID:    "test-uuid",
 		Command:      "claude",
 		Instructions: "You are a test agent.\nDo test things.",
+		HarnessType:  "claude_code",
+		CWD:          "/tmp",
+		StartedAt:    "2024-01-01T00:00:00Z",
 	}
 
-	s := New(opts.Name, opts.Command, opts.Args)
-	s.SessionID = opts.SessionID
-	s.Instructions = opts.Instructions
+	s := New(rc.AgentName, rc.Command, rc.Args)
+	s.SessionID = rc.SessionID
+	s.Instructions = rc.Instructions
 
 	if s.Instructions != "You are a test agent.\nDo test things." {
 		t.Fatalf("Instructions not stored on session: got %q", s.Instructions)
@@ -29,8 +34,8 @@ func TestRunDaemonOpts_InstructionsStoredOnSession(t *testing.T) {
 	for i, arg := range args {
 		if arg == "--append-system-prompt" && i+1 < len(args) {
 			found = true
-			if args[i+1] != opts.Instructions {
-				t.Fatalf("--append-system-prompt value = %q, want %q", args[i+1], opts.Instructions)
+			if args[i+1] != rc.Instructions {
+				t.Fatalf("--append-system-prompt value = %q, want %q", args[i+1], rc.Instructions)
 			}
 		}
 	}
@@ -39,17 +44,18 @@ func TestRunDaemonOpts_InstructionsStoredOnSession(t *testing.T) {
 	}
 }
 
-func TestRunDaemonOpts_EmptyInstructionsNotStoredOnSession(t *testing.T) {
-	opts := RunDaemonOpts{
-		Name:         "test-agent",
-		SessionID:    "test-uuid",
-		Command:      "claude",
-		Instructions: "",
+func TestRuntimeConfig_EmptyInstructionsNotInChildArgs(t *testing.T) {
+	rc := &config.RuntimeConfig{
+		AgentName:   "test-agent",
+		SessionID:   "test-uuid",
+		Command:     "claude",
+		HarnessType: "claude_code",
+		CWD:         "/tmp",
+		StartedAt:   "2024-01-01T00:00:00Z",
 	}
 
-	s := New(opts.Name, opts.Command, opts.Args)
-	s.SessionID = opts.SessionID
-	s.Instructions = opts.Instructions
+	s := New(rc.AgentName, rc.Command, rc.Args)
+	s.SessionID = rc.SessionID
 
 	// Verify childArgs does NOT include --append-system-prompt.
 	args := s.childArgs()
@@ -60,37 +66,26 @@ func TestRunDaemonOpts_EmptyInstructionsNotStoredOnSession(t *testing.T) {
 	}
 }
 
-func TestForkDaemonOpts_InstructionsField(t *testing.T) {
-	// Verify ForkDaemonOpts can carry instructions to be passed as --instructions flag.
-	opts := ForkDaemonOpts{
-		Name:         "test-agent",
-		SessionID:    "test-uuid",
-		Command:      "claude",
-		Instructions: "Multi-line\ninstructions\nwith special chars: $VAR `code`",
-	}
-
-	if opts.Instructions != "Multi-line\ninstructions\nwith special chars: $VAR `code`" {
-		t.Fatalf("ForkDaemonOpts.Instructions not preserved: got %q", opts.Instructions)
-	}
-}
-
-func TestRunDaemonOpts_AllNewFieldsStoredOnSession(t *testing.T) {
-	opts := RunDaemonOpts{
-		Name:                 "test-agent",
+func TestRuntimeConfig_AllFieldsStoredOnSession(t *testing.T) {
+	rc := &config.RuntimeConfig{
+		AgentName:            "test-agent",
 		SessionID:            "test-uuid",
 		Command:              "claude",
 		Instructions:         "Instructions here",
 		SystemPrompt:         "Custom system prompt",
 		Model:                "claude-opus-4-6",
 		ClaudePermissionMode: "plan",
+		HarnessType:          "claude_code",
+		CWD:                  "/tmp",
+		StartedAt:            "2024-01-01T00:00:00Z",
 	}
 
-	s := New(opts.Name, opts.Command, opts.Args)
-	s.SessionID = opts.SessionID
-	s.Instructions = opts.Instructions
-	s.SystemPrompt = opts.SystemPrompt
-	s.Model = opts.Model
-	s.ClaudePermissionMode = opts.ClaudePermissionMode
+	s := New(rc.AgentName, rc.Command, rc.Args)
+	s.SessionID = rc.SessionID
+	s.Instructions = rc.Instructions
+	s.SystemPrompt = rc.SystemPrompt
+	s.Model = rc.Model
+	s.ClaudePermissionMode = rc.ClaudePermissionMode
 
 	if s.SystemPrompt != "Custom system prompt" {
 		t.Fatalf("SystemPrompt not stored: got %q", s.SystemPrompt)
@@ -126,64 +121,29 @@ func TestRunDaemonOpts_AllNewFieldsStoredOnSession(t *testing.T) {
 	}
 }
 
-func TestForkDaemonOpts_AllNewFields(t *testing.T) {
-	opts := ForkDaemonOpts{
-		Name:                 "test-agent",
-		SessionID:            "test-uuid",
-		Command:              "claude",
-		SystemPrompt:         "Custom prompt",
-		Model:                "claude-sonnet-4-5-20250929",
-		ClaudePermissionMode: "bypassPermissions",
-	}
-
-	if opts.SystemPrompt != "Custom prompt" {
-		t.Fatalf("SystemPrompt not preserved: got %q", opts.SystemPrompt)
-	}
-	if opts.Model != "claude-sonnet-4-5-20250929" {
-		t.Fatalf("Model not preserved: got %q", opts.Model)
-	}
-	if opts.ClaudePermissionMode != "bypassPermissions" {
-		t.Fatalf("ClaudePermissionMode not preserved: got %q", opts.ClaudePermissionMode)
-	}
-}
-
-func TestRunDaemonOpts_CodexAskForApprovalFields(t *testing.T) {
-	opts := RunDaemonOpts{
-		Name:                "test-agent",
+func TestRuntimeConfig_CodexFields(t *testing.T) {
+	rc := &config.RuntimeConfig{
+		AgentName:           "test-agent",
 		SessionID:           "test-uuid",
 		Command:             "codex",
 		Instructions:        "Do work",
 		CodexAskForApproval: "never",
 		CodexSandboxMode:    "danger-full-access",
+		HarnessType:         "codex",
+		CWD:                 "/tmp",
+		StartedAt:           "2024-01-01T00:00:00Z",
 	}
 
-	s := New(opts.Name, opts.Command, opts.Args)
-	s.SessionID = opts.SessionID
-	s.Instructions = opts.Instructions
-	s.CodexAskForApproval = opts.CodexAskForApproval
-	s.CodexSandboxMode = opts.CodexSandboxMode
+	s := New(rc.AgentName, rc.Command, rc.Args)
+	s.SessionID = rc.SessionID
+	s.Instructions = rc.Instructions
+	s.CodexAskForApproval = rc.CodexAskForApproval
+	s.CodexSandboxMode = rc.CodexSandboxMode
 
 	if s.CodexAskForApproval != "never" {
 		t.Fatalf("CodexAskForApproval not stored: got %q", s.CodexAskForApproval)
 	}
 	if s.CodexSandboxMode != "danger-full-access" {
 		t.Fatalf("CodexSandboxMode not stored: got %q", s.CodexSandboxMode)
-	}
-}
-
-func TestForkDaemonOpts_CodexAskForApprovalFields(t *testing.T) {
-	opts := ForkDaemonOpts{
-		Name:                "test-agent",
-		SessionID:           "test-uuid",
-		Command:             "codex",
-		CodexAskForApproval: "on-request",
-		CodexSandboxMode:    "workspace-write",
-	}
-
-	if opts.CodexAskForApproval != "on-request" {
-		t.Fatalf("CodexAskForApproval not preserved: got %q", opts.CodexAskForApproval)
-	}
-	if opts.CodexSandboxMode != "workspace-write" {
-		t.Fatalf("CodexSandboxMode not preserved: got %q", opts.CodexSandboxMode)
 	}
 }

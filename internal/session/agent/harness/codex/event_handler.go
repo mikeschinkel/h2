@@ -181,7 +181,7 @@ func (p *EventHandler) processEvent(name string, attrs []otelAttribute, ts time.
 			Timestamp: ts,
 			Data: monitor.SessionStartedData{
 				SessionID: convID,
-				Model:    model,
+				Model:     model,
 			},
 		})
 		p.emitStateChange(ts, monitor.StateIdle, monitor.SubStateNone)

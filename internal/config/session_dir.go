@@ -19,7 +19,8 @@ func SessionDir(agentName string) string {
 }
 
 // FindSessionDirByID returns the session directory whose metadata contains
-// the given session ID. Empty string means not found.
+// the given session ID. Checks RuntimeConfig first, falls back to legacy
+// SessionMetadata. Empty string means not found.
 func FindSessionDirByID(sessionID string) string {
 	if sessionID == "" {
 		return ""
@@ -35,11 +36,12 @@ func FindSessionDirByID(sessionID string) string {
 			continue
 		}
 		dir := filepath.Join(root, entry.Name())
-		meta, err := ReadSessionMetadata(dir)
-		if err != nil {
-			continue
+		// Try RuntimeConfig first.
+		if rc, err := ReadRuntimeConfig(dir); err == nil && rc.SessionID == sessionID {
+			return dir
 		}
-		if meta != nil && meta.SessionID == sessionID {
+		// Fall back to legacy SessionMetadata.
+		if meta, err := ReadSessionMetadata(dir); err == nil && meta != nil && meta.SessionID == sessionID {
 			return dir
 		}
 	}

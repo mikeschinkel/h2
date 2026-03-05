@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -107,6 +108,44 @@ func TestAgentEvent_PayloadTypes(t *testing.T) {
 	}
 	if sc.State != StateActive || sc.SubState != SubStateThinking {
 		t.Errorf("unexpected state change: %+v", sc)
+	}
+}
+
+func TestSessionStartedData_UnmarshalJSON_LegacyThreadID(t *testing.T) {
+	// Old eventstore JSONL has "ThreadID" instead of "SessionID".
+	raw := `{"ThreadID":"old-session-123","Model":"claude-4"}`
+	var d SessionStartedData
+	if err := json.Unmarshal([]byte(raw), &d); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if d.SessionID != "old-session-123" {
+		t.Errorf("SessionID = %q, want %q", d.SessionID, "old-session-123")
+	}
+	if d.Model != "claude-4" {
+		t.Errorf("Model = %q, want %q", d.Model, "claude-4")
+	}
+}
+
+func TestSessionStartedData_UnmarshalJSON_NewSessionID(t *testing.T) {
+	raw := `{"SessionID":"new-session-456","Model":"claude-4"}`
+	var d SessionStartedData
+	if err := json.Unmarshal([]byte(raw), &d); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if d.SessionID != "new-session-456" {
+		t.Errorf("SessionID = %q, want %q", d.SessionID, "new-session-456")
+	}
+}
+
+func TestSessionStartedData_UnmarshalJSON_SessionIDPrecedence(t *testing.T) {
+	// If both are present (shouldn't happen but be safe), SessionID wins.
+	raw := `{"SessionID":"new","ThreadID":"old","Model":"m"}`
+	var d SessionStartedData
+	if err := json.Unmarshal([]byte(raw), &d); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if d.SessionID != "new" {
+		t.Errorf("SessionID = %q, want %q (SessionID should take precedence)", d.SessionID, "new")
 	}
 }
 

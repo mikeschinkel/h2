@@ -98,19 +98,6 @@ func doSetupAndForkAgent(name string, role *config.Role, detach bool, pod string
 		return fmt.Errorf("ensure config dir: %w", err)
 	}
 
-	var heartbeat session.DaemonHeartbeat
-	if role.Heartbeat != nil {
-		d, err := role.Heartbeat.ParseIdleTimeout()
-		if err != nil {
-			return fmt.Errorf("invalid heartbeat idle_timeout: %w", err)
-		}
-		heartbeat = session.DaemonHeartbeat{
-			IdleTimeout: d,
-			Message:     role.Heartbeat.Message,
-			Condition:   role.Heartbeat.Condition,
-		}
-	}
-
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
@@ -143,34 +130,62 @@ func doSetupAndForkAgent(name string, role *config.Role, detach bool, pod string
 		return fmt.Errorf("resolve additional_dirs: %w", err)
 	}
 
-	sessionID := uuid.New().String()
-	colorHints := detectTerminalHints()
+	// Parse overrides into a map for RuntimeConfig.
+	var overrideMap map[string]string
+	if len(overrides) > 0 {
+		overrideMap, err = config.ParseOverrides(overrides)
+		if err != nil {
+			return fmt.Errorf("parse overrides: %w", err)
+		}
+	}
 
-	// Fork the daemon.
-	if err := forkDaemonFunc(session.ForkDaemonOpts{
-		Name:                 name,
-		SessionID:            sessionID,
-		Command:              h.Command(),
-		RoleName:             role.RoleName,
-		SessionDir:           sessionDir,
+	sessionID := uuid.New().String()
+
+	// Build RuntimeConfig with all resolved values.
+	rc := &config.RuntimeConfig{
+		AgentName:        name,
+		SessionID:        sessionID,
+		RoleName:         role.RoleName,
+		Pod:              pod,
+		HarnessType:      roleCfg.HarnessType,
+		HarnessConfigDir: roleCfg.ConfigDir,
+		Command:          h.Command(),
+		// Args is not set for role-based launches; the harness builds
+		// the full command args via BuildCommandArgs.
+		Model:                roleCfg.Model,
+		CWD:                  agentCWD,
 		Instructions:         role.GetInstructions(),
 		SystemPrompt:         role.SystemPrompt,
-		Model:                roleCfg.Model,
-		HarnessType:          roleCfg.HarnessType,
-		HarnessConfigDir:     roleCfg.ConfigDir,
 		ClaudePermissionMode: role.ClaudePermissionMode,
 		CodexSandboxMode:     role.CodexSandboxMode,
 		CodexAskForApproval:  role.CodexAskForApproval,
 		AdditionalDirs:       additionalDirs,
-		Heartbeat:            heartbeat,
-		CWD:                  agentCWD,
-		Pod:                  pod,
-		Overrides:            overrides,
-		OscFg:                colorHints.OscFg,
-		OscBg:                colorHints.OscBg,
-		ColorFGBG:            colorHints.ColorFGBG,
-		Term:                 colorHints.Term,
-		ColorTerm:            colorHints.ColorTerm,
+		Overrides:            overrideMap,
+	}
+
+	// Set heartbeat config.
+	if role.Heartbeat != nil {
+		if role.Heartbeat.IdleTimeout != "" {
+			rc.HeartbeatIdleTimeout = role.Heartbeat.IdleTimeout
+		}
+		rc.HeartbeatMessage = role.Heartbeat.Message
+		rc.HeartbeatCondition = role.Heartbeat.Condition
+	}
+
+	// Write RuntimeConfig before forking so the daemon can read it.
+	if err := config.WriteRuntimeConfig(sessionDir, rc); err != nil {
+		return fmt.Errorf("write runtime config: %w", err)
+	}
+
+	colorHints := detectTerminalHints()
+
+	// Fork the daemon.
+	if err := forkDaemonFunc(sessionDir, session.TerminalHints{
+		OscFg:     colorHints.OscFg,
+		OscBg:     colorHints.OscBg,
+		ColorFGBG: colorHints.ColorFGBG,
+		Term:      colorHints.Term,
+		ColorTerm: colorHints.ColorTerm,
 	}); err != nil {
 		return err
 	}

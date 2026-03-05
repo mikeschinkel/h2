@@ -21,9 +21,9 @@ type AgentMonitor struct {
 	stateChangedAt time.Time
 	stateCh        chan struct{} // closed on state change
 
-	sessionID          string
-	onSessionStarted   func(SessionStartedData)
-	model    string
+	sessionID        string
+	onSessionStarted func(SessionStartedData)
+	model            string
 
 	// Accumulated metrics from events.
 	inputTokens     int64
@@ -94,17 +94,21 @@ func (m *AgentMonitor) processEvent(ev AgentEvent) {
 		m.writeEvent(ev) //nolint:errcheck // best-effort persistence
 	}
 
+	// Capture callback+data under lock, invoke after unlock to avoid
+	// blocking event processing or risking deadlock if callback calls
+	// monitor getters.
+	var sessionStartedCb func(SessionStartedData)
+	var sessionStartedData SessionStartedData
+
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	switch ev.Type {
 	case EventSessionStarted:
 		if data, ok := ev.Data.(SessionStartedData); ok {
 			m.sessionID = data.SessionID
 			m.model = data.Model
-			if m.onSessionStarted != nil {
-				m.onSessionStarted(data)
-			}
+			sessionStartedCb = m.onSessionStarted
+			sessionStartedData = data
 		}
 
 	case EventUserPrompt:
@@ -164,6 +168,14 @@ func (m *AgentMonitor) processEvent(ev AgentEvent) {
 
 	case EventSessionEnded:
 		m.setStateLocked(StateExited, SubStateNone)
+	}
+
+	m.mu.Unlock()
+
+	// Invoke callback outside the lock so it can do I/O (e.g. persist
+	// RuntimeConfig) without blocking event processing.
+	if sessionStartedCb != nil {
+		sessionStartedCb(sessionStartedData)
 	}
 }
 

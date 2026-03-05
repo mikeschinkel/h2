@@ -88,7 +88,6 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 
 			var cmdCommand string
 			var cmdArgs []string
-			var heartbeat session.DaemonHeartbeat
 
 			// Positional name is supported for role/agent-type modes.
 			var positionalName string
@@ -205,23 +204,37 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 			hcfg := commandHarnessConfig(cmdCommand)
 
 			sessionID := uuid.New().String()
+
+			// Create session dir for command-mode launch.
+			sessionDir := config.SessionDir(name)
+			if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+				return fmt.Errorf("create session dir: %w", err)
+			}
+
+			// Build and write RuntimeConfig.
+			rc := &config.RuntimeConfig{
+				AgentName:        name,
+				SessionID:        sessionID,
+				HarnessType:      hcfg.HarnessType,
+				HarnessConfigDir: hcfg.ConfigDir,
+				Command:          cmdCommand,
+				Args:             cmdArgs,
+				CWD:              func() string { cwd, _ := os.Getwd(); return cwd }(),
+				Pod:              pod,
+			}
+			if err := config.WriteRuntimeConfig(sessionDir, rc); err != nil {
+				return fmt.Errorf("write runtime config: %w", err)
+			}
+
 			colorHints := detectTerminalHints()
 
 			// Fork a daemon process.
-			if err := forkDaemonFunc(session.ForkDaemonOpts{
-				Name:             name,
-				SessionID:        sessionID,
-				Command:          cmdCommand,
-				HarnessType:      hcfg.HarnessType,
-				HarnessConfigDir: hcfg.ConfigDir,
-				Args:             cmdArgs,
-				Heartbeat:        heartbeat,
-				Pod:              pod,
-				OscFg:            colorHints.OscFg,
-				OscBg:            colorHints.OscBg,
-				ColorFGBG:        colorHints.ColorFGBG,
-				Term:             colorHints.Term,
-				ColorTerm:        colorHints.ColorTerm,
+			if err := forkDaemonFunc(sessionDir, session.TerminalHints{
+				OscFg:     colorHints.OscFg,
+				OscBg:     colorHints.OscBg,
+				ColorFGBG: colorHints.ColorFGBG,
+				Term:      colorHints.Term,
+				ColorTerm: colorHints.ColorTerm,
 			}); err != nil {
 				return err
 			}
@@ -249,10 +262,10 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 	return cmd
 }
 
-// runResume handles the `h2 run <name> --resume` flow. It reads session
-// metadata from a previous run, checks the agent isn't still alive, resolves
-// the harness (to verify resume support), and forks a new daemon that passes
-// --resume <session-id> to Claude Code instead of starting a fresh session.
+// runResume handles the `h2 run <name> --resume` flow. It reads the
+// RuntimeConfig from a previous run, checks the agent isn't still alive,
+// resolves the harness (to verify resume support), and forks a new daemon
+// that passes --resume <session-id> to Claude Code instead of starting fresh.
 func runResume(cmd *cobra.Command, args []string, detach bool, dryRun bool) error {
 	if len(args) == 0 {
 		return fmt.Errorf("--resume requires an agent name (e.g. h2 run <name> --resume)")
@@ -262,13 +275,39 @@ func runResume(cmd *cobra.Command, args []string, detach bool, dryRun bool) erro
 	}
 	name := args[0]
 
-	// Read session metadata from the previous run.
+	// Read RuntimeConfig from the previous run. Fall back to legacy
+	// SessionMetadata for older sessions.
 	sessionDir := config.SessionDir(name)
-	meta, err := config.ReadSessionMetadata(sessionDir)
+	rc, err := config.ReadRuntimeConfig(sessionDir)
 	if err != nil {
-		return fmt.Errorf("no session found for agent %q: %w", name, err)
+		// Try legacy SessionMetadata for backward compatibility.
+		meta, metaErr := config.ReadSessionMetadata(sessionDir)
+		if metaErr != nil {
+			return fmt.Errorf("no session found for agent %q: %w", name, err)
+		}
+		if meta.SessionID == "" {
+			return fmt.Errorf("session metadata for %q has no session ID", name)
+		}
+		// Convert legacy metadata to RuntimeConfig for the resume flow.
+		harnessType := meta.HarnessType
+		if harnessType == "" {
+			harnessType = inferHarnessType(meta.Command)
+		}
+		rc = &config.RuntimeConfig{
+			AgentName:        name,
+			SessionID:        meta.SessionID,
+			RoleName:         meta.Role,
+			Pod:              meta.Pod,
+			HarnessType:      harnessType,
+			HarnessConfigDir: meta.ClaudeConfigDir,
+			Command:          meta.Command,
+			CWD:              meta.CWD,
+			StartedAt:        meta.StartedAt,
+			Overrides:        meta.Overrides,
+		}
 	}
-	if meta.SessionID == "" {
+
+	if rc.SessionID == "" {
 		return fmt.Errorf("session metadata for %q has no session ID", name)
 	}
 
@@ -278,14 +317,13 @@ func runResume(cmd *cobra.Command, args []string, detach bool, dryRun bool) erro
 	}
 
 	// Resolve harness type to check resume support.
-	harnessType := meta.HarnessType
+	harnessType := rc.HarnessType
 	if harnessType == "" {
-		// Fall back to inferring from command for older metadata that didn't store harness_type.
-		harnessType = inferHarnessType(meta.Command)
+		harnessType = inferHarnessType(rc.Command)
 	}
 	h, err := harness.Resolve(harness.HarnessConfig{
 		HarnessType: harnessType,
-		Command:     meta.Command,
+		Command:     rc.Command,
 	}, nil)
 	if err != nil {
 		return fmt.Errorf("resolve harness for resume: %w", err)
@@ -295,27 +333,26 @@ func runResume(cmd *cobra.Command, args []string, detach bool, dryRun bool) erro
 	}
 
 	// Ensure the harness config dir exists (e.g. Claude's CLAUDE_CONFIG_DIR).
-	if meta.ClaudeConfigDir != "" {
-		if err := config.EnsureClaudeConfigDir(meta.ClaudeConfigDir); err != nil {
+	if rc.HarnessConfigDir != "" {
+		if err := config.EnsureClaudeConfigDir(rc.HarnessConfigDir); err != nil {
 			return fmt.Errorf("ensure config dir: %w", err)
 		}
 	}
 
-	// Build the command args that the harness will use.
-	resumeArgs := h.BuildCommandArgs(harness.CommandArgsConfig{
-		ResumeSessionID: meta.SessionID,
-	})
-
 	if dryRun {
+		// Build the command args that the harness will use.
+		resumeArgs := h.BuildCommandArgs(harness.CommandArgsConfig{
+			ResumeSessionID: rc.SessionID,
+		})
 		fmt.Printf("Resume Agent: %s\n", name)
-		fmt.Printf("Previous Session ID: %s\n", meta.SessionID)
+		fmt.Printf("Previous Session ID: %s\n", rc.SessionID)
 		fmt.Printf("Harness: %s\n", harnessType)
-		fmt.Printf("Working Dir: %s\n", meta.CWD)
-		if meta.Pod != "" {
-			fmt.Printf("Pod: %s\n", meta.Pod)
+		fmt.Printf("Working Dir: %s\n", rc.CWD)
+		if rc.Pod != "" {
+			fmt.Printf("Pod: %s\n", rc.Pod)
 		}
 		fmt.Printf("\nCommand:\n")
-		fmt.Printf("%s \\\n", meta.Command)
+		fmt.Printf("%s \\\n", rc.Command)
 		for i, arg := range resumeArgs {
 			if i < len(resumeArgs)-1 {
 				fmt.Printf("  %s \\\n", arg)
@@ -327,25 +364,27 @@ func runResume(cmd *cobra.Command, args []string, detach bool, dryRun bool) erro
 	}
 
 	// Generate a new session ID for this h2 daemon instance.
-	sessionID := uuid.New().String()
+	newSessionID := uuid.New().String()
+
+	// Update RuntimeConfig for the resume: new session ID, set resume pointer.
+	rc.ResumeSessionID = rc.SessionID
+	rc.SessionID = newSessionID
+	rc.StartedAt = "" // will be set by WriteRuntimeConfig
+
+	// Write updated RuntimeConfig before forking.
+	if err := config.WriteRuntimeConfig(sessionDir, rc); err != nil {
+		return fmt.Errorf("write runtime config for resume: %w", err)
+	}
+
 	colorHints := detectTerminalHints()
 
 	// Fork daemon with resume.
-	if err := forkDaemonFunc(session.ForkDaemonOpts{
-		Name:             name,
-		SessionID:        sessionID,
-		ResumeSessionID:  meta.SessionID,
-		Command:          meta.Command,
-		SessionDir:       sessionDir,
-		HarnessType:      harnessType,
-		HarnessConfigDir: meta.ClaudeConfigDir,
-		CWD:              meta.CWD,
-		Pod:              meta.Pod,
-		OscFg:            colorHints.OscFg,
-		OscBg:            colorHints.OscBg,
-		ColorFGBG:        colorHints.ColorFGBG,
-		Term:             colorHints.Term,
-		ColorTerm:        colorHints.ColorTerm,
+	if err := forkDaemonFunc(sessionDir, session.TerminalHints{
+		OscFg:     colorHints.OscFg,
+		OscBg:     colorHints.OscBg,
+		ColorFGBG: colorHints.ColorFGBG,
+		Term:      colorHints.Term,
+		ColorTerm: colorHints.ColorTerm,
 	}); err != nil {
 		return err
 	}

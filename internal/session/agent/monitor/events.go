@@ -1,6 +1,9 @@
 package monitor
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // AgentEvent is the normalized event emitted by adapters.
 type AgentEvent struct {
@@ -53,7 +56,26 @@ func (t AgentEventType) String() string {
 // SessionStartedData is the payload for EventSessionStarted.
 type SessionStartedData struct {
 	SessionID string
-	Model    string
+	Model     string
+}
+
+// UnmarshalJSON accepts both "SessionID" and legacy "ThreadID" for backward
+// compatibility with eventstore JSONL written before the rename.
+func (d *SessionStartedData) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		SessionID string `json:"SessionID"`
+		ThreadID  string `json:"ThreadID"`
+		Model     string `json:"Model"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	d.SessionID = raw.SessionID
+	if d.SessionID == "" {
+		d.SessionID = raw.ThreadID
+	}
+	d.Model = raw.Model
+	return nil
 }
 
 // TurnCompletedData is the payload for EventTurnCompleted.

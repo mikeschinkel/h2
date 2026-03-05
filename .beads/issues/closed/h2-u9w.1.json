@@ -2,7 +2,7 @@
   "id": "h2-u9w.1",
   "title": "RuntimeConfig struct + atomic read/write/validate",
   "description": "Create config/runtime_config.go with RuntimeConfig struct (all fields from design doc), atomic WriteRuntimeConfig (temp+rename), ReadRuntimeConfig with strict validation of required fields, and deprecated claude_config_dir migration. Unit tests for round-trip, validation failures, backward compat read of old metadata.",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "parent": "h2-u9w",
@@ -29,5 +29,7 @@
   ],
   "assignee": "mild-cloud",
   "created_at": "2026-03-05T11:04:37.088512-08:00",
-  "updated_at": "2026-03-05T11:05:04.535066-08:00"
+  "updated_at": "2026-03-05T11:12:22.892851-08:00",
+  "closed_at": "2026-03-05T11:12:22.892851-08:00",
+  "close_reason": "Closed"
 }

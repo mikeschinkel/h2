@@ -312,10 +312,10 @@ func TestPodLaunchCmd_TemplateWithVarRendering(t *testing.T) {
 	h2Root := setupPodTestEnv(t)
 
 	// Mock ForkDaemon to prevent spawning real processes.
-	var forkOpts []session.ForkDaemonOpts
+	var forkSessionDirs []string
 	origFork := forkDaemonFunc
-	forkDaemonFunc = func(opts session.ForkDaemonOpts) error {
-		forkOpts = append(forkOpts, opts)
+	forkDaemonFunc = func(sessionDir string, hints session.TerminalHints) error {
+		forkSessionDirs = append(forkSessionDirs, sessionDir)
 		return nil
 	}
 	t.Cleanup(func() { forkDaemonFunc = origFork })
@@ -343,11 +343,15 @@ agents:
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(forkOpts) != 1 {
-		t.Fatalf("expected 1 fork call, got %d", len(forkOpts))
+	if len(forkSessionDirs) != 1 {
+		t.Fatalf("expected 1 fork call, got %d", len(forkSessionDirs))
 	}
-	if forkOpts[0].Name != "dev-worker" {
-		t.Errorf("expected agent name 'dev-worker', got %q", forkOpts[0].Name)
+	rc, err := config.ReadRuntimeConfig(forkSessionDirs[0])
+	if err != nil {
+		t.Fatalf("read runtime config: %v", err)
+	}
+	if rc.AgentName != "dev-worker" {
+		t.Errorf("expected agent name 'dev-worker', got %q", rc.AgentName)
 	}
 }
 
@@ -355,10 +359,10 @@ func TestPodLaunchCmd_CLIVarOverridesDefault(t *testing.T) {
 	h2Root := setupPodTestEnv(t)
 
 	// Mock ForkDaemon to prevent spawning real processes.
-	var forkOpts []session.ForkDaemonOpts
+	var forkSessionDirs []string
 	origFork := forkDaemonFunc
-	forkDaemonFunc = func(opts session.ForkDaemonOpts) error {
-		forkOpts = append(forkOpts, opts)
+	forkDaemonFunc = func(sessionDir string, hints session.TerminalHints) error {
+		forkSessionDirs = append(forkSessionDirs, sessionDir)
 		return nil
 	}
 	t.Cleanup(func() { forkDaemonFunc = origFork })
@@ -384,10 +388,14 @@ agents:
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(forkOpts) != 1 {
-		t.Fatalf("expected 1 fork call, got %d", len(forkOpts))
+	if len(forkSessionDirs) != 1 {
+		t.Fatalf("expected 1 fork call, got %d", len(forkSessionDirs))
 	}
-	if forkOpts[0].Name != "staging-worker" {
-		t.Errorf("expected agent name 'staging-worker', got %q", forkOpts[0].Name)
+	rc, err := config.ReadRuntimeConfig(forkSessionDirs[0])
+	if err != nil {
+		t.Fatalf("read runtime config: %v", err)
+	}
+	if rc.AgentName != "staging-worker" {
+		t.Errorf("expected agent name 'staging-worker', got %q", rc.AgentName)
 	}
 }

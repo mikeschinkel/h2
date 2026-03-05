@@ -31,61 +31,73 @@ type DaemonHeartbeat struct {
 	Condition   string
 }
 
-// RunDaemonOpts holds all options for running a daemon.
-type RunDaemonOpts struct {
-	Name                 string
-	SessionID            string
-	ResumeSessionID      string // if set, resume this Claude session instead of starting fresh
-	Command              string
-	Args                 []string
-	RoleName             string
-	SessionDir           string
-	Instructions         string   // role instructions → --append-system-prompt
-	SystemPrompt         string   // replaces default system prompt → --system-prompt
-	Model                string   // model selection → --model
-	HarnessType          string   // resolved harness type from launcher
-	HarnessConfigDir     string   // resolved harness config dir from launcher
-	ClaudePermissionMode string   // Claude Code --permission-mode
-	CodexSandboxMode     string   // Codex --sandbox
-	CodexAskForApproval  string   // Codex --ask-for-approval
-	AdditionalDirs       []string // extra dirs passed via --add-dir
-	Heartbeat            DaemonHeartbeat
-	Overrides            map[string]string // --override key=value pairs for metadata
+// TerminalHints holds transient terminal color and type hints that
+// the launcher captures and passes to the daemon via environment variables.
+// These are not persisted in RuntimeConfig because they are ephemeral.
+type TerminalHints struct {
+	OscFg     string // X11 rgb foreground from OSC query
+	OscBg     string // X11 rgb background from OSC query
+	ColorFGBG string // COLORFGBG hint
+	Term      string // TERM value
+	ColorTerm string // COLORTERM value
 }
 
 // RunDaemon creates a Session and Daemon, sets up the socket, and runs
 // the session in daemon mode. This is the main entry point for the _daemon command.
-func RunDaemon(opts RunDaemonOpts) error {
-	s := New(opts.Name, opts.Command, opts.Args)
-	s.SessionID = opts.SessionID
-	s.ResumeSessionID = opts.ResumeSessionID
-	s.RoleName = opts.RoleName
-	s.SessionDir = opts.SessionDir
-	s.Instructions = opts.Instructions
-	s.SystemPrompt = opts.SystemPrompt
-	s.Model = opts.Model
-	s.HarnessType = opts.HarnessType
-	s.HarnessConfigDir = opts.HarnessConfigDir
-	s.ClaudePermissionMode = opts.ClaudePermissionMode
-	s.CodexSandboxMode = opts.CodexSandboxMode
-	s.CodexAskForApproval = opts.CodexAskForApproval
-	s.AdditionalDirs = opts.AdditionalDirs
-	if cwd, err := os.Getwd(); err == nil {
-		s.WorkingDir = cwd
+// All configuration comes from the RuntimeConfig which was written to
+// sessionDir by the launcher before forking.
+func RunDaemon(rc *config.RuntimeConfig) error {
+	s := New(rc.AgentName, rc.Command, rc.Args)
+	s.SessionID = rc.SessionID
+	s.ResumeSessionID = rc.ResumeSessionID
+	s.RoleName = rc.RoleName
+	s.Instructions = rc.Instructions
+	s.SystemPrompt = rc.SystemPrompt
+	s.Model = rc.Model
+	s.HarnessType = rc.HarnessType
+	s.HarnessConfigDir = rc.HarnessConfigDir
+	s.ClaudePermissionMode = rc.ClaudePermissionMode
+	s.CodexSandboxMode = rc.CodexSandboxMode
+	s.CodexAskForApproval = rc.CodexAskForApproval
+	s.AdditionalDirs = rc.AdditionalDirs
+	s.WorkingDir = rc.CWD
+
+	// Parse heartbeat config.
+	if rc.HeartbeatIdleTimeout != "" {
+		d, err := rc.ParseHeartbeatIdleTimeout()
+		if err != nil {
+			return fmt.Errorf("parse heartbeat idle timeout: %w", err)
+		}
+		s.HeartbeatIdleTimeout = d
+		s.HeartbeatMessage = rc.HeartbeatMessage
+		s.HeartbeatCondition = rc.HeartbeatCondition
 	}
-	s.HeartbeatIdleTimeout = opts.Heartbeat.IdleTimeout
-	s.HeartbeatMessage = opts.Heartbeat.Message
-	s.HeartbeatCondition = opts.Heartbeat.Condition
+
 	s.StartTime = time.Now()
+
+	// Derive session dir from the RuntimeConfig file location.
+	// The RuntimeConfig is at <sessionDir>/session.metadata.json.
+	sessionDir := config.SessionDir(rc.AgentName)
+	s.SessionDir = sessionDir
+
+	// Wire OnSessionStarted callback to persist harness_session_id.
+	s.monitor.SetOnSessionStarted(func(data monitor.SessionStartedData) {
+		if data.SessionID != "" && data.SessionID != rc.HarnessSessionID {
+			rc.HarnessSessionID = data.SessionID
+			if err := config.WriteRuntimeConfig(sessionDir, rc); err != nil {
+				log.Printf("warning: update harness_session_id in runtime config: %v", err)
+			}
+		}
+	})
 
 	// Create socket directory.
 	if err := os.MkdirAll(socketdir.Dir(), 0o700); err != nil {
 		return fmt.Errorf("create socket dir: %w", err)
 	}
 
-	sockPath := socketdir.Path(socketdir.TypeAgent, opts.Name)
+	sockPath := socketdir.Path(socketdir.TypeAgent, rc.AgentName)
 
-	if err := socketdir.ProbeSocket(sockPath, fmt.Sprintf("agent %q", opts.Name)); err != nil {
+	if err := socketdir.ProbeSocket(sockPath, fmt.Sprintf("agent %q", rc.AgentName)); err != nil {
 		return err
 	}
 
@@ -98,27 +110,6 @@ func RunDaemon(opts RunDaemonOpts) error {
 		ln.Close()
 		os.Remove(sockPath)
 	}()
-
-	// Write session metadata for h2 peek and other tools.
-	if s.SessionDir != "" {
-		agentEnvVars := s.harness.BuildCommandEnvVars(config.ConfigDir())
-		cwd, _ := os.Getwd()
-		meta := config.SessionMetadata{
-			AgentName:       opts.Name,
-			SessionID:       opts.SessionID,
-			ClaudeConfigDir: agentEnvVars["CLAUDE_CONFIG_DIR"],
-			CWD:             cwd,
-			Command:         opts.Command,
-			Role:            opts.RoleName,
-			Overrides:       opts.Overrides,
-			HarnessType:     opts.HarnessType,
-			Pod:             os.Getenv("H2_POD"),
-			StartedAt:       s.StartTime.UTC().Format(time.RFC3339),
-		}
-		if err := config.WriteSessionMetadata(s.SessionDir, meta); err != nil {
-			log.Printf("warning: write session metadata: %v", err)
-		}
-	}
 
 	d := &Daemon{
 		Session:   s,
@@ -195,94 +186,22 @@ func gitStats() *gitDiffStats {
 	return parseGitDiffStats()
 }
 
-// ForkDaemonOpts holds all options for forking a daemon process.
-type ForkDaemonOpts struct {
-	Name                 string
-	SessionID            string
-	ResumeSessionID      string // if set, resume this session instead of starting fresh
-	Command              string
-	Args                 []string
-	RoleName             string
-	SessionDir           string
-	Instructions         string // role instructions → --append-system-prompt
-	SystemPrompt         string // replaces default system prompt → --system-prompt
-	Model                string // model selection → --model
-	HarnessType          string // resolved harness type from launcher
-	HarnessConfigDir     string // resolved harness config dir from launcher
-	ClaudePermissionMode string // Claude Code --permission-mode
-	CodexSandboxMode     string // Codex --sandbox
-	CodexAskForApproval  string // Codex --ask-for-approval
-	Heartbeat            DaemonHeartbeat
-	CWD                  string   // working directory for the child process
-	AdditionalDirs       []string // extra dirs passed via --add-dir
-	Pod                  string   // pod name (set as H2_POD env var)
-	Overrides            []string // --override key=value pairs (recorded in session metadata)
-	OscFg                string   // startup terminal foreground color (X11 rgb)
-	OscBg                string   // startup terminal background color (X11 rgb)
-	ColorFGBG            string   // startup COLORFGBG hint
-	Term                 string   // TERM value from launching terminal
-	ColorTerm            string   // COLORTERM value from launching terminal
-}
-
 // ForkDaemon starts a daemon in a background process by re-execing with
-// the hidden _daemon subcommand.
-func ForkDaemon(opts ForkDaemonOpts) error {
+// the hidden _daemon subcommand. The RuntimeConfig must already be written
+// to sessionDir before calling ForkDaemon.
+func ForkDaemon(sessionDir string, termHints TerminalHints) error {
+	// Read RuntimeConfig to get agent name, CWD, and pod.
+	rc, err := config.ReadRuntimeConfig(sessionDir)
+	if err != nil {
+		return fmt.Errorf("read runtime config for fork: %w", err)
+	}
+
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("find executable: %w", err)
 	}
 
-	daemonArgs := []string{"_daemon", "--name", opts.Name, "--session-id", opts.SessionID}
-	if opts.ResumeSessionID != "" {
-		daemonArgs = append(daemonArgs, "--resume-session-id", opts.ResumeSessionID)
-	}
-	if opts.RoleName != "" {
-		daemonArgs = append(daemonArgs, "--role", opts.RoleName)
-	}
-	if opts.SessionDir != "" {
-		daemonArgs = append(daemonArgs, "--session-dir", opts.SessionDir)
-	}
-	if opts.Heartbeat.IdleTimeout > 0 {
-		daemonArgs = append(daemonArgs, "--heartbeat-idle-timeout", opts.Heartbeat.IdleTimeout.String())
-		daemonArgs = append(daemonArgs, "--heartbeat-message", opts.Heartbeat.Message)
-		if opts.Heartbeat.Condition != "" {
-			daemonArgs = append(daemonArgs, "--heartbeat-condition", opts.Heartbeat.Condition)
-		}
-	}
-	if opts.Instructions != "" {
-		daemonArgs = append(daemonArgs, "--instructions", opts.Instructions)
-	}
-	if opts.SystemPrompt != "" {
-		daemonArgs = append(daemonArgs, "--system-prompt", opts.SystemPrompt)
-	}
-	if opts.Model != "" {
-		daemonArgs = append(daemonArgs, "--model", opts.Model)
-	}
-	if opts.HarnessType != "" {
-		daemonArgs = append(daemonArgs, "--harness-type", opts.HarnessType)
-	}
-	if opts.HarnessConfigDir != "" {
-		daemonArgs = append(daemonArgs, "--harness-config-dir", opts.HarnessConfigDir)
-	}
-	if opts.ClaudePermissionMode != "" {
-		daemonArgs = append(daemonArgs, "--permission-mode", opts.ClaudePermissionMode)
-	}
-	if opts.CodexSandboxMode != "" {
-		daemonArgs = append(daemonArgs, "--codex-sandbox-mode", opts.CodexSandboxMode)
-	}
-	if opts.CodexAskForApproval != "" {
-		daemonArgs = append(daemonArgs, "--codex-ask-for-approval", opts.CodexAskForApproval)
-	}
-	for _, dir := range opts.AdditionalDirs {
-		daemonArgs = append(daemonArgs, "--additional-dir", dir)
-	}
-	for _, ov := range opts.Overrides {
-		daemonArgs = append(daemonArgs, "--override", ov)
-	}
-	daemonArgs = append(daemonArgs, "--")
-	daemonArgs = append(daemonArgs, opts.Command)
-	daemonArgs = append(daemonArgs, opts.Args...)
-
+	daemonArgs := []string{"_daemon", "--session-dir", sessionDir}
 	cmd := exec.Command(exe, daemonArgs...)
 	cmd.SysProcAttr = NewSysProcAttr()
 
@@ -293,29 +212,29 @@ func ForkDaemon(opts ForkDaemonOpts) error {
 	if h2Dir, err := config.ResolveDir(); err == nil {
 		env = append(env, "H2_DIR="+h2Dir)
 	}
-	if opts.Pod != "" {
-		env = append(env, "H2_POD="+opts.Pod)
+	if rc.Pod != "" {
+		env = append(env, "H2_POD="+rc.Pod)
 	}
-	if opts.OscFg != "" {
-		env = append(env, "H2_OSC_FG="+opts.OscFg)
+	if termHints.OscFg != "" {
+		env = append(env, "H2_OSC_FG="+termHints.OscFg)
 	}
-	if opts.OscBg != "" {
-		env = append(env, "H2_OSC_BG="+opts.OscBg)
+	if termHints.OscBg != "" {
+		env = append(env, "H2_OSC_BG="+termHints.OscBg)
 	}
-	if opts.ColorFGBG != "" {
-		env = append(env, "H2_COLORFGBG="+opts.ColorFGBG)
+	if termHints.ColorFGBG != "" {
+		env = append(env, "H2_COLORFGBG="+termHints.ColorFGBG)
 	}
-	if opts.Term != "" {
-		env = append(env, "H2_TERM="+opts.Term)
+	if termHints.Term != "" {
+		env = append(env, "H2_TERM="+termHints.Term)
 	}
-	if opts.ColorTerm != "" {
-		env = append(env, "H2_COLORTERM="+opts.ColorTerm)
+	if termHints.ColorTerm != "" {
+		env = append(env, "H2_COLORTERM="+termHints.ColorTerm)
 	}
 	cmd.Env = env
 
 	// Set working directory for the child process.
-	if opts.CWD != "" {
-		cmd.Dir = opts.CWD
+	if rc.CWD != "" {
+		cmd.Dir = rc.CWD
 	}
 
 	cmd.Stdin = nil
@@ -332,9 +251,9 @@ func ForkDaemon(opts ForkDaemonOpts) error {
 
 	// Open a log file for stderr so panic stack traces are captured.
 	var stderrFile *os.File
-	if opts.SessionDir != "" {
+	if sessionDir != "" {
 		stderrFile, err = os.OpenFile(
-			filepath.Join(opts.SessionDir, "daemon.stderr.log"),
+			filepath.Join(sessionDir, "daemon.stderr.log"),
 			os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644,
 		)
 		if err != nil {
@@ -365,7 +284,7 @@ func ForkDaemon(opts ForkDaemonOpts) error {
 	}()
 
 	// Wait for socket to appear.
-	sockPath := socketdir.Path(socketdir.TypeAgent, opts.Name)
+	sockPath := socketdir.Path(socketdir.TypeAgent, rc.AgentName)
 	for i := 0; i < 50; i++ {
 		time.Sleep(100 * time.Millisecond)
 		if _, err := os.Stat(sockPath); err == nil {

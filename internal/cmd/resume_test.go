@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,8 +12,21 @@ import (
 	"h2/internal/session/agent/harness"
 )
 
-// writeTestSessionMetadata creates a session dir with metadata for testing.
-// Uses the real config.SessionDir() since ConfigDir is cached.
+// writeTestRuntimeConfig creates a session dir with a RuntimeConfig for testing.
+func writeTestRuntimeConfig(t *testing.T, name string, rc *config.RuntimeConfig) string {
+	t.Helper()
+	sessionDir := config.SessionDir(name)
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatalf("create session dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sessionDir) })
+	if err := config.WriteRuntimeConfig(sessionDir, rc); err != nil {
+		t.Fatalf("write runtime config: %v", err)
+	}
+	return sessionDir
+}
+
+// writeTestSessionMetadata creates a session dir with legacy SessionMetadata for testing.
 func writeTestSessionMetadata(t *testing.T, name string, meta config.SessionMetadata) string {
 	t.Helper()
 	sessionDir := config.SessionDir(name)
@@ -22,12 +34,8 @@ func writeTestSessionMetadata(t *testing.T, name string, meta config.SessionMeta
 		t.Fatalf("create session dir: %v", err)
 	}
 	t.Cleanup(func() { os.RemoveAll(sessionDir) })
-	data, err := json.MarshalIndent(meta, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal metadata: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(sessionDir, "session.metadata.json"), data, 0o644); err != nil {
-		t.Fatalf("write metadata: %v", err)
+	if err := config.WriteSessionMetadata(sessionDir, meta); err != nil {
+		t.Fatalf("write session metadata: %v", err)
 	}
 	return sessionDir
 }
@@ -96,14 +104,15 @@ func TestRunResume_DryRun(t *testing.T) {
 	claudeConfigDir := filepath.Join(tmpDir, "claude-config")
 	os.MkdirAll(claudeConfigDir, 0o755)
 
-	writeTestSessionMetadata(t, name, config.SessionMetadata{
-		AgentName:       name,
-		SessionID:       "dry-run-session-uuid",
-		Command:         "claude",
-		HarnessType:     "claude_code",
-		ClaudeConfigDir: claudeConfigDir,
-		CWD:             tmpDir,
-		Pod:             "test-pod",
+	writeTestRuntimeConfig(t, name, &config.RuntimeConfig{
+		AgentName:        name,
+		SessionID:        "dry-run-session-uuid",
+		Command:          "claude",
+		HarnessType:      "claude_code",
+		HarnessConfigDir: claudeConfigDir,
+		CWD:              tmpDir,
+		Pod:              "test-pod",
+		StartedAt:        "2024-01-01T00:00:00Z",
 	})
 
 	// Capture stdout.
@@ -155,6 +164,7 @@ func TestRunResume_EmptySessionID(t *testing.T) {
 	t.Setenv("CLAUDECODE", "")
 
 	name := "resume-test-empty-sid"
+	// Use legacy SessionMetadata with empty session ID.
 	writeTestSessionMetadata(t, name, config.SessionMetadata{
 		AgentName: name,
 		Command:   "claude",
@@ -175,12 +185,13 @@ func TestRunResume_UnsupportedHarness(t *testing.T) {
 	t.Setenv("CLAUDECODE", "")
 
 	name := "resume-test-codex"
-	writeTestSessionMetadata(t, name, config.SessionMetadata{
+	writeTestRuntimeConfig(t, name, &config.RuntimeConfig{
 		AgentName:   name,
 		SessionID:   "old-session-id",
 		Command:     "codex",
 		HarnessType: "codex",
 		CWD:         t.TempDir(),
+		StartedAt:   "2024-01-01T00:00:00Z",
 	})
 
 	cmd := newRunCmd()
@@ -202,21 +213,25 @@ func TestRunResume_ForksDaemonWithResumeSessionID(t *testing.T) {
 	claudeConfigDir := filepath.Join(tmpDir, "claude-config")
 	os.MkdirAll(claudeConfigDir, 0o755)
 
-	sessionDir := writeTestSessionMetadata(t, name, config.SessionMetadata{
-		AgentName:       name,
-		SessionID:       "previous-session-uuid",
-		Command:         "claude",
-		HarnessType:     "claude_code",
-		ClaudeConfigDir: claudeConfigDir,
-		CWD:             tmpDir,
-		Pod:             "my-pod",
+	sessionDir := writeTestRuntimeConfig(t, name, &config.RuntimeConfig{
+		AgentName:        name,
+		SessionID:        "previous-session-uuid",
+		Command:          "claude",
+		HarnessType:      "claude_code",
+		HarnessConfigDir: claudeConfigDir,
+		CWD:              tmpDir,
+		Pod:              "my-pod",
+		StartedAt:        "2024-01-01T00:00:00Z",
 	})
 
 	// Capture ForkDaemon call.
-	var captured session.ForkDaemonOpts
+	var capturedSessionDir string
+	var capturedHints session.TerminalHints
 	origFork := forkDaemonFunc
-	forkDaemonFunc = func(opts session.ForkDaemonOpts) error {
-		captured = opts
+	forkDaemonFunc = func(sd string, hints session.TerminalHints) error {
+		capturedSessionDir = sd
+		capturedHints = hints
+		_ = capturedHints // used to verify it's passed
 		return nil
 	}
 	defer func() { forkDaemonFunc = origFork }()
@@ -228,32 +243,38 @@ func TestRunResume_ForksDaemonWithResumeSessionID(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if captured.Name != name {
-		t.Errorf("Name = %q, want %q", captured.Name, name)
+	if capturedSessionDir != sessionDir {
+		t.Errorf("SessionDir = %q, want %q", capturedSessionDir, sessionDir)
 	}
-	if captured.ResumeSessionID != "previous-session-uuid" {
-		t.Errorf("ResumeSessionID = %q, want %q", captured.ResumeSessionID, "previous-session-uuid")
+
+	// Read the RuntimeConfig that was written before fork to verify fields.
+	rc, err := config.ReadRuntimeConfig(sessionDir)
+	if err != nil {
+		t.Fatalf("read runtime config after fork: %v", err)
 	}
-	if captured.SessionID == "" {
+	if rc.AgentName != name {
+		t.Errorf("Name = %q, want %q", rc.AgentName, name)
+	}
+	if rc.ResumeSessionID != "previous-session-uuid" {
+		t.Errorf("ResumeSessionID = %q, want %q", rc.ResumeSessionID, "previous-session-uuid")
+	}
+	if rc.SessionID == "" {
 		t.Error("SessionID should be a new UUID, got empty")
 	}
-	if captured.SessionID == "previous-session-uuid" {
+	if rc.SessionID == "previous-session-uuid" {
 		t.Error("SessionID should be a NEW UUID, not the old one")
 	}
-	if captured.Command != "claude" {
-		t.Errorf("Command = %q, want %q", captured.Command, "claude")
+	if rc.Command != "claude" {
+		t.Errorf("Command = %q, want %q", rc.Command, "claude")
 	}
-	if captured.HarnessType != "claude_code" {
-		t.Errorf("HarnessType = %q, want %q", captured.HarnessType, "claude_code")
+	if rc.HarnessType != "claude_code" {
+		t.Errorf("HarnessType = %q, want %q", rc.HarnessType, "claude_code")
 	}
-	if captured.Pod != "my-pod" {
-		t.Errorf("Pod = %q, want %q", captured.Pod, "my-pod")
+	if rc.Pod != "my-pod" {
+		t.Errorf("Pod = %q, want %q", rc.Pod, "my-pod")
 	}
-	if captured.CWD != tmpDir {
-		t.Errorf("CWD = %q, want %q", captured.CWD, tmpDir)
-	}
-	if captured.SessionDir != sessionDir {
-		t.Errorf("SessionDir = %q, want %q", captured.SessionDir, sessionDir)
+	if rc.CWD != tmpDir {
+		t.Errorf("CWD = %q, want %q", rc.CWD, tmpDir)
 	}
 }
 
@@ -265,7 +286,7 @@ func TestRunResume_InfersHarnessTypeFromCommand(t *testing.T) {
 	claudeConfigDir := filepath.Join(tmpDir, "claude-config")
 	os.MkdirAll(claudeConfigDir, 0o755)
 
-	// Create metadata without harness_type (simulates old metadata).
+	// Create legacy metadata without harness_type (simulates old metadata).
 	writeTestSessionMetadata(t, name, config.SessionMetadata{
 		AgentName:       name,
 		SessionID:       "old-uuid",
@@ -274,10 +295,10 @@ func TestRunResume_InfersHarnessTypeFromCommand(t *testing.T) {
 		CWD:             tmpDir,
 	})
 
-	var captured session.ForkDaemonOpts
+	var capturedSessionDir string
 	origFork := forkDaemonFunc
-	forkDaemonFunc = func(opts session.ForkDaemonOpts) error {
-		captured = opts
+	forkDaemonFunc = func(sd string, hints session.TerminalHints) error {
+		capturedSessionDir = sd
 		return nil
 	}
 	defer func() { forkDaemonFunc = origFork }()
@@ -289,8 +310,13 @@ func TestRunResume_InfersHarnessTypeFromCommand(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if captured.HarnessType != "claude_code" {
-		t.Errorf("HarnessType = %q, want %q (inferred from command)", captured.HarnessType, "claude_code")
+	// Verify harness type was inferred and written to RuntimeConfig.
+	rc, err := config.ReadRuntimeConfig(capturedSessionDir)
+	if err != nil {
+		t.Fatalf("read runtime config: %v", err)
+	}
+	if rc.HarnessType != "claude_code" {
+		t.Errorf("HarnessType = %q, want %q (inferred from command)", rc.HarnessType, "claude_code")
 	}
 }
 
@@ -375,18 +401,20 @@ func TestGenericHarness_SupportsResume(t *testing.T) {
 	}
 }
 
-func TestSessionMetadata_NewFields(t *testing.T) {
+func TestRuntimeConfig_NewFields(t *testing.T) {
 	dir := t.TempDir()
-	meta := config.SessionMetadata{
+	rc := &config.RuntimeConfig{
 		AgentName:   "test",
 		SessionID:   "uuid",
 		HarnessType: "claude_code",
 		Pod:         "test-pod",
+		Command:     "claude",
+		CWD:         "/tmp",
 	}
-	if err := config.WriteSessionMetadata(dir, meta); err != nil {
+	if err := config.WriteRuntimeConfig(dir, rc); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	got, err := config.ReadSessionMetadata(dir)
+	got, err := config.ReadRuntimeConfig(dir)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
