@@ -1,0 +1,29 @@
+{
+  "id": "h2-u9w.4",
+  "title": "Simplify resume to use RuntimeConfig",
+  "description": "Completed as part of h2-u9w.3. Resume uses RuntimeConfig, fallback to legacy with format detection, non-destructive writes, CHANGELOG added.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "parent": "h2-u9w",
+  "dependencies": [
+    {
+      "id": "h2-u9w",
+      "type": "parent-child"
+    },
+    {
+      "id": "h2-u9w.3",
+      "type": "blocks"
+    }
+  ],
+  "created_by": "Danny Cosson",
+  "owner": "dcosson@gmail.com",
+  "labels": [
+    "project=h2"
+  ],
+  "assignee": "mild-cloud",
+  "created_at": "2026-03-05T11:04:55.420387-08:00",
+  "updated_at": "2026-03-05T11:33:26.677346-08:00",
+  "closed_at": "2026-03-05T11:33:26.677346-08:00",
+  "close_reason": "Closed"
+}
