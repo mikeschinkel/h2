@@ -419,11 +419,13 @@ func createProfileWithSharedSymlink(h2Dir, name, sourceProfile, harnessType stri
 			}
 			return fmt.Errorf("stat source claude config: %w", err)
 		}
+		fmt.Fprintf(out, "  Copying claude-config/%s -> claude-config/%s ...", sourceProfile, name)
 		if err := copyPathFiltered(srcClaude, dstClaude, func(_ string, info os.FileInfo) bool {
 			return !info.IsDir() && info.Name() == ".claude.json"
 		}); err != nil {
 			return fmt.Errorf("copy claude profile: %w", err)
 		}
+		fmt.Fprintln(out, " Done")
 		if err := ensureClaudeProfileLinks(dstClaude, name, out); err != nil {
 			return err
 		}
@@ -440,11 +442,13 @@ func createProfileWithSharedSymlink(h2Dir, name, sourceProfile, harnessType stri
 			}
 			return fmt.Errorf("stat source codex config: %w", err)
 		}
+		fmt.Fprintf(out, "  Copying codex-config/%s -> codex-config/%s ...", sourceProfile, name)
 		if err := copyPathFiltered(srcCodex, dstCodex, func(_ string, info os.FileInfo) bool {
 			return !info.IsDir() && info.Name() == "auth.json"
 		}); err != nil {
 			return fmt.Errorf("copy codex profile: %w", err)
 		}
+		fmt.Fprintln(out, " Done")
 		if err := ensureCodexProfileLinks(dstCodex, name, out); err != nil {
 			return err
 		}
