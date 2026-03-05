@@ -13,6 +13,7 @@ import (
 
 func newDaemonCmd() *cobra.Command {
 	var sessionDir string
+	var resume bool
 
 	cmd := &cobra.Command{
 		Use:    "_daemon --session-dir=<path>",
@@ -29,7 +30,7 @@ func newDaemonCmd() *cobra.Command {
 				return fmt.Errorf("read runtime config: %w", err)
 			}
 
-			err = session.RunDaemon(sessionDir, rc)
+			err = session.RunDaemon(sessionDir, rc, resume)
 			if err != nil {
 				if _, ok := err.(*exec.ExitError); ok {
 					os.Exit(1)
@@ -41,6 +42,7 @@ func newDaemonCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&sessionDir, "session-dir", "", "Session directory path containing session.metadata.json")
+	cmd.Flags().BoolVar(&resume, "resume", false, "Resume the harness session instead of starting fresh")
 
 	return cmd
 }

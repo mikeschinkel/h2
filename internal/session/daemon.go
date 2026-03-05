@@ -48,10 +48,12 @@ type TerminalHints struct {
 // sessionDir by the launcher before forking. sessionDir is the exact path
 // used by the launcher (not reconstructed from agent name) to ensure
 // consistency across symlinks, worktrees, and custom paths.
-func RunDaemon(sessionDir string, rc *config.RuntimeConfig) error {
+func RunDaemon(sessionDir string, rc *config.RuntimeConfig, resume bool) error {
 	s := New(rc.AgentName, rc.Command, rc.Args)
 	s.SessionID = rc.SessionID
-	s.ResumeSessionID = rc.ResumeSessionID
+	if resume {
+		s.ResumeSessionID = rc.HarnessSessionID
+	}
 	s.RoleName = rc.RoleName
 	s.Instructions = rc.Instructions
 	s.SystemPrompt = rc.SystemPrompt
@@ -187,7 +189,7 @@ func gitStats() *gitDiffStats {
 // ForkDaemon starts a daemon in a background process by re-execing with
 // the hidden _daemon subcommand. The RuntimeConfig must already be written
 // to sessionDir before calling ForkDaemon.
-func ForkDaemon(sessionDir string, termHints TerminalHints) error {
+func ForkDaemon(sessionDir string, termHints TerminalHints, resume bool) error {
 	// Read RuntimeConfig to get agent name, CWD, and pod.
 	rc, err := config.ReadRuntimeConfig(sessionDir)
 	if err != nil {
@@ -200,6 +202,9 @@ func ForkDaemon(sessionDir string, termHints TerminalHints) error {
 	}
 
 	daemonArgs := []string{"_daemon", "--session-dir", sessionDir}
+	if resume {
+		daemonArgs = append(daemonArgs, "--resume")
+	}
 	cmd := exec.Command(exe, daemonArgs...)
 	cmd.SysProcAttr = NewSysProcAttr()
 

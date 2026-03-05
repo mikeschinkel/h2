@@ -93,6 +93,7 @@ func TestRunResume_DryRun(t *testing.T) {
 	writeTestRuntimeConfig(t, name, &config.RuntimeConfig{
 		AgentName:        name,
 		SessionID:        "dry-run-session-uuid",
+		HarnessSessionID: "dry-run-session-uuid",
 		Command:          "claude",
 		HarnessType:      "claude_code",
 		HarnessConfigDir: claudeConfigDir,
@@ -178,12 +179,13 @@ func TestRunResume_UnsupportedHarness(t *testing.T) {
 
 	name := "resume-test-codex"
 	writeTestRuntimeConfig(t, name, &config.RuntimeConfig{
-		AgentName:   name,
-		SessionID:   "old-session-id",
-		Command:     "codex",
-		HarnessType: "codex",
-		CWD:         t.TempDir(),
-		StartedAt:   "2024-01-01T00:00:00Z",
+		AgentName:        name,
+		SessionID:        "old-session-id",
+		HarnessSessionID: "old-session-id",
+		Command:          "codex",
+		HarnessType:      "codex",
+		CWD:              t.TempDir(),
+		StartedAt:        "2024-01-01T00:00:00Z",
 	})
 
 	cmd := newRunCmd()
@@ -197,7 +199,7 @@ func TestRunResume_UnsupportedHarness(t *testing.T) {
 	}
 }
 
-func TestRunResume_ForksDaemonWithResumeSessionID(t *testing.T) {
+func TestRunResume_ForksDaemonWithResumeFlag(t *testing.T) {
 	t.Setenv("CLAUDECODE", "")
 
 	name := "resume-test-fork"
@@ -207,7 +209,8 @@ func TestRunResume_ForksDaemonWithResumeSessionID(t *testing.T) {
 
 	sessionDir := writeTestRuntimeConfig(t, name, &config.RuntimeConfig{
 		AgentName:        name,
-		SessionID:        "previous-session-uuid",
+		SessionID:        "session-uuid",
+		HarnessSessionID: "session-uuid",
 		Command:          "claude",
 		HarnessType:      "claude_code",
 		HarnessConfigDir: claudeConfigDir,
@@ -218,12 +221,11 @@ func TestRunResume_ForksDaemonWithResumeSessionID(t *testing.T) {
 
 	// Capture ForkDaemon call.
 	var capturedSessionDir string
-	var capturedHints session.TerminalHints
+	var capturedResume bool
 	origFork := forkDaemonFunc
-	forkDaemonFunc = func(sd string, hints session.TerminalHints) error {
+	forkDaemonFunc = func(sd string, hints session.TerminalHints, resume bool) error {
 		capturedSessionDir = sd
-		capturedHints = hints
-		_ = capturedHints // used to verify it's passed
+		capturedResume = resume
 		return nil
 	}
 	defer func() { forkDaemonFunc = origFork }()
@@ -238,35 +240,26 @@ func TestRunResume_ForksDaemonWithResumeSessionID(t *testing.T) {
 	if capturedSessionDir != sessionDir {
 		t.Errorf("SessionDir = %q, want %q", capturedSessionDir, sessionDir)
 	}
+	if !capturedResume {
+		t.Error("ForkDaemon should be called with resume=true")
+	}
 
-	// Read the RuntimeConfig that was written before fork to verify fields.
+	// RuntimeConfig should be unchanged (same session, no resume field persisted).
 	rc, err := config.ReadRuntimeConfig(sessionDir)
 	if err != nil {
 		t.Fatalf("read runtime config after fork: %v", err)
 	}
-	if rc.AgentName != name {
-		t.Errorf("Name = %q, want %q", rc.AgentName, name)
+	if rc.SessionID != "session-uuid" {
+		t.Errorf("SessionID = %q, want %q (should be unchanged)", rc.SessionID, "session-uuid")
 	}
-	// SessionID stays the same — it's the same logical session being resumed.
-	if rc.SessionID != "previous-session-uuid" {
-		t.Errorf("SessionID = %q, want %q (should be unchanged)", rc.SessionID, "previous-session-uuid")
-	}
-	// ResumeSessionID should equal SessionID (HarnessSessionID was empty,
-	// so it falls back to SessionID).
-	if rc.ResumeSessionID != "previous-session-uuid" {
-		t.Errorf("ResumeSessionID = %q, want %q", rc.ResumeSessionID, "previous-session-uuid")
+	if rc.HarnessSessionID != "session-uuid" {
+		t.Errorf("HarnessSessionID = %q, want %q", rc.HarnessSessionID, "session-uuid")
 	}
 	if rc.Command != "claude" {
 		t.Errorf("Command = %q, want %q", rc.Command, "claude")
 	}
-	if rc.HarnessType != "claude_code" {
-		t.Errorf("HarnessType = %q, want %q", rc.HarnessType, "claude_code")
-	}
 	if rc.Pod != "my-pod" {
 		t.Errorf("Pod = %q, want %q", rc.Pod, "my-pod")
-	}
-	if rc.CWD != tmpDir {
-		t.Errorf("CWD = %q, want %q", rc.CWD, tmpDir)
 	}
 }
 

@@ -58,9 +58,6 @@ type RuntimeConfig struct {
 	// Overrides (recorded for display/debugging).
 	Overrides map[string]string `json:"overrides,omitempty"`
 
-	// Resume support.
-	ResumeSessionID string `json:"resume_session_id,omitempty"`
-
 	// Timestamps.
 	StartedAt string `json:"started_at"`
 }

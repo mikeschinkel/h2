@@ -216,6 +216,7 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 			rc := &config.RuntimeConfig{
 				AgentName:        name,
 				SessionID:        sessionID,
+				HarnessSessionID: sessionID, // For Claude Code, h2 passes --session-id so they're the same.
 				HarnessType:      hcfg.HarnessType,
 				HarnessConfigDir: hcfg.ConfigDir,
 				Command:          cmdCommand,
@@ -236,7 +237,7 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 				ColorFGBG: colorHints.ColorFGBG,
 				Term:      colorHints.Term,
 				ColorTerm: colorHints.ColorTerm,
-			}); err != nil {
+			}, false); err != nil {
 				return err
 			}
 
@@ -310,25 +311,19 @@ func runResume(cmd *cobra.Command, args []string, detach bool, dryRun bool) erro
 		}
 	}
 
-	// Determine the harness session ID to resume. HarnessSessionID is the
-	// session as known by the harness (e.g. Claude Code). For Claude Code,
-	// h2 passes --session-id on first run so SessionID and the harness session
-	// are the same; fall back to SessionID when HarnessSessionID is unset.
-	harnessResumeID := rc.HarnessSessionID
-	if harnessResumeID == "" {
-		harnessResumeID = rc.SessionID
+	if rc.HarnessSessionID == "" {
+		return fmt.Errorf("session config for agent %q has no harness_session_id; cannot resume", name)
 	}
 
 	if dryRun {
 		// Build the command args that the harness will use.
 		resumeArgs := h.BuildCommandArgs(harness.CommandArgsConfig{
-			ResumeSessionID: harnessResumeID,
+			ResumeSessionID: rc.HarnessSessionID,
 		})
 		fmt.Printf("Resume Agent: %s\n", name)
 		fmt.Printf("Config File: %s\n", filepath.Join(sessionDir, "session.metadata.json"))
 		fmt.Printf("Session ID: %s\n", rc.SessionID)
 		fmt.Printf("Harness Session ID: %s\n", rc.HarnessSessionID)
-		fmt.Printf("Resume Harness Target: %s\n", harnessResumeID)
 		fmt.Printf("Harness: %s\n", rc.HarnessType)
 		fmt.Printf("Working Dir: %s\n", rc.CWD)
 		if rc.Pod != "" {
@@ -346,30 +341,25 @@ func runResume(cmd *cobra.Command, args []string, detach bool, dryRun bool) erro
 		return nil
 	}
 
-	origResumeSessionID := rc.ResumeSessionID
+	// Update started_at for the new daemon instance.
 	origStartedAt := rc.StartedAt
-
-	rc.ResumeSessionID = harnessResumeID
 	rc.StartedAt = "" // will be set by WriteRuntimeConfig
 
-	// Write updated RuntimeConfig before forking.
 	if err := config.WriteRuntimeConfig(sessionDir, rc); err != nil {
 		return fmt.Errorf("write runtime config for resume: %w", err)
 	}
 
 	colorHints := detectTerminalHints()
 
-	// Fork daemon with resume. If fork fails, restore the original config
-	// so the session metadata isn't left in a corrupted state.
+	// Fork daemon with --resume flag. If fork fails, restore the original
+	// started_at so the metadata isn't left in a corrupted state.
 	if err := forkDaemonFunc(sessionDir, session.TerminalHints{
 		OscFg:     colorHints.OscFg,
 		OscBg:     colorHints.OscBg,
 		ColorFGBG: colorHints.ColorFGBG,
 		Term:      colorHints.Term,
 		ColorTerm: colorHints.ColorTerm,
-	}); err != nil {
-		// Restore original config on fork failure.
-		rc.ResumeSessionID = origResumeSessionID
+	}, true); err != nil {
 		rc.StartedAt = origStartedAt
 		_ = config.WriteRuntimeConfig(sessionDir, rc) // best-effort restore
 		return err

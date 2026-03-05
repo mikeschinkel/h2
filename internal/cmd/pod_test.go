@@ -314,7 +314,7 @@ func TestPodLaunchCmd_TemplateWithVarRendering(t *testing.T) {
 	// Mock ForkDaemon to prevent spawning real processes.
 	var forkSessionDirs []string
 	origFork := forkDaemonFunc
-	forkDaemonFunc = func(sessionDir string, hints session.TerminalHints) error {
+	forkDaemonFunc = func(sessionDir string, hints session.TerminalHints, resume bool) error {
 		forkSessionDirs = append(forkSessionDirs, sessionDir)
 		return nil
 	}
@@ -361,7 +361,7 @@ func TestPodLaunchCmd_CLIVarOverridesDefault(t *testing.T) {
 	// Mock ForkDaemon to prevent spawning real processes.
 	var forkSessionDirs []string
 	origFork := forkDaemonFunc
-	forkDaemonFunc = func(sessionDir string, hints session.TerminalHints) error {
+	forkDaemonFunc = func(sessionDir string, hints session.TerminalHints, resume bool) error {
 		forkSessionDirs = append(forkSessionDirs, sessionDir)
 		return nil
 	}

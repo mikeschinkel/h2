@@ -32,7 +32,6 @@ func TestWriteReadRuntimeConfig_RoundTrip(t *testing.T) {
 		HeartbeatMessage:     "Are you still working?",
 		HeartbeatCondition:   "test -f /tmp/check",
 		Overrides:            map[string]string{"worktree_enabled": "true"},
-		ResumeSessionID:      "old-uuid-789",
 		StartedAt:            "2026-03-05T10:00:00Z",
 	}
 
@@ -102,9 +101,6 @@ func TestWriteReadRuntimeConfig_RoundTrip(t *testing.T) {
 	}
 	if len(got.Overrides) != 1 || got.Overrides["worktree_enabled"] != "true" {
 		t.Errorf("Overrides = %v, want %v", got.Overrides, rc.Overrides)
-	}
-	if got.ResumeSessionID != rc.ResumeSessionID {
-		t.Errorf("ResumeSessionID = %q, want %q", got.ResumeSessionID, rc.ResumeSessionID)
 	}
 	if got.StartedAt != rc.StartedAt {
 		t.Errorf("StartedAt = %q, want %q", got.StartedAt, rc.StartedAt)

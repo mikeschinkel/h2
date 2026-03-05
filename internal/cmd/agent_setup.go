@@ -15,7 +15,7 @@ import (
 
 // forkDaemonFunc is the function used to fork daemon processes.
 // Tests override this to avoid spawning real processes.
-var forkDaemonFunc = session.ForkDaemon
+var forkDaemonFunc func(string, session.TerminalHints, bool) error = session.ForkDaemon
 
 // roleHarnessConfig builds a harness.HarnessConfig from a Role.
 // Used by agent setup and dry-run to resolve the harness.
@@ -145,6 +145,7 @@ func doSetupAndForkAgent(name string, role *config.Role, detach bool, pod string
 	rc := &config.RuntimeConfig{
 		AgentName:        name,
 		SessionID:        sessionID,
+		HarnessSessionID: sessionID, // For Claude Code, h2 passes --session-id so they're the same.
 		RoleName:         role.RoleName,
 		Pod:              pod,
 		HarnessType:      roleCfg.HarnessType,
@@ -186,7 +187,7 @@ func doSetupAndForkAgent(name string, role *config.Role, detach bool, pod string
 		ColorFGBG: colorHints.ColorFGBG,
 		Term:      colorHints.Term,
 		ColorTerm: colorHints.ColorTerm,
-	}); err != nil {
+	}, false); err != nil {
 		return err
 	}
 
