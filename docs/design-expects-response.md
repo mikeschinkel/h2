@@ -32,17 +32,18 @@ The `(response expected, id: <id>)` annotation is only added when
 
 ### Responding to close the obligation
 
-With a message body (sends the response AND closes the obligation):
+With a message body (target required — sends the response AND closes the obligation):
 ```
 h2 send --responds-to a1b2c3d4 user "Coverage is 85%"
 ```
 
-Without a message body (just closes the obligation, sends nothing):
+Without a message body (target optional — just closes the obligation, sends nothing):
 ```
-h2 send --responds-to a1b2c3d4 user
+h2 send --responds-to a1b2c3d4
 ```
 
-Body is optional when `--responds-to` is set.
+Body and target are both optional when `--responds-to` is set. Target is required
+when body is present (so the CLI knows where to send the response).
 
 ## How It Works
 
@@ -81,12 +82,13 @@ entirely as a trigger on the recipient's daemon.
 
 When `h2 send --responds-to <id> [target] ["body"]` is called:
 
-1. Resolve self via `resolveActor()`.
-2. Find own daemon socket.
-3. Send `trigger_remove` request for the given ID to own daemon. This removes
-   the reminder trigger.
-4. If body is non-empty, send the message to the target as a normal `h2 send`.
-5. If body is empty, done — obligation closed, nothing sent.
+1. Validate arguments: if body is present, target must also be present.
+2. Resolve self via `resolveActor()`.
+3. Find own daemon socket.
+4. Send `trigger_remove` request for the given ID to own daemon. This removes
+   the reminder trigger. If socket not found, warn and continue.
+5. If body is non-empty, send the message to the target as a normal `h2 send`.
+6. If body is empty, done — obligation closed, nothing sent.
 
 ### Sequence Diagram
 
@@ -121,14 +123,25 @@ sequenceDiagram
 - Add `--responds-to` string flag (8-char trigger ID).
 - When `--expects-response` is set:
   1. Send the message normally to the target daemon.
-  2. Construct the reminder trigger (see above).
-  3. Send `trigger_add` request to the **target** daemon.
-  4. Print the trigger ID to stdout.
+  2. Generate an 8-char hex trigger ID (same scheme as message filename prefixes).
+  3. Construct the reminder trigger (see above).
+  4. Send `trigger_add` request to the **target** daemon.
+     - If `trigger_add` succeeds: print the trigger ID to stdout, exit 0.
+     - If `trigger_add` fails due to ID collision: regenerate ID once and retry.
+       If second attempt also collides, print error and exit non-zero.
+     - If `trigger_add` fails for any other reason (socket error, daemon down):
+       print warning to stderr: `"warning: message delivered but response tracking
+       not created: <error>"`. Exit non-zero. The message was already delivered
+       and is still useful — no rollback needed.
 - When `--responds-to` is set:
   1. Send `trigger_remove` to own daemon (best-effort — warn if socket not found).
-  2. If body is non-empty, send message to target as normal.
-  3. If body is empty, exit successfully.
-- Body becomes optional when `--responds-to` is set.
+  2. If body is non-empty, target argument is **required**. Send message to target
+     as normal.
+  3. If body is empty, target argument is **optional** (ignored if provided). The
+     trigger_remove goes to own daemon only. Exit successfully.
+- Body is optional when `--responds-to` is set.
+- Validation: `--responds-to` with body but no target is an error (exit non-zero
+  with usage message).
 
 ### `internal/session/message/delivery.go`
 
@@ -183,6 +196,11 @@ without going idle, the reminder never fires — acceptable for a crashed agent.
 but still send the message body (if any) — the obligation may have already been
 fulfilled by the trigger firing at idle.
 
+**Trigger ID collision**: `trigger_add` rejects if the ID already exists in the
+TriggerEngine. The CLI regenerates the ID once and retries. A second collision
+is a fatal error (exit non-zero). At ~4 billion possible values and typically
+single-digit active triggers per agent, collisions are extremely unlikely.
+
 **Multiple expects-response messages pending**: Each creates its own independent
 trigger. All fire at idle, delivered sequentially.
 
@@ -193,9 +211,15 @@ trigger. All fire at idle, delivered sequentially.
 **`cmd/send_test.go`**:
 - `TestSend_ExpectsResponse_CreatesTrigger` — verify trigger_add sent to target daemon
 - `TestSend_ExpectsResponse_MessageAnnotation` — verify delivery format includes ID
+- `TestSend_ExpectsResponse_TriggerAddFails` — verify warning printed, non-zero exit, message still delivered
+- `TestSend_ExpectsResponse_IDCollisionRetry` — verify regenerate+retry on first collision, success on second
+- `TestSend_ExpectsResponse_IDCollisionFatal` — verify non-zero exit on double collision
 - `TestSend_RespondsTo_RemovesTrigger` — verify trigger_remove sent to own daemon
-- `TestSend_RespondsTo_NoBody` — verify body optional, no message sent
+- `TestSend_RespondsTo_NoBody` — verify body and target both optional, no message sent
+- `TestSend_RespondsTo_NoBodyWithTarget` — verify target ignored when no body
 - `TestSend_RespondsTo_WithBody` — verify trigger removed AND message sent
+- `TestSend_RespondsTo_BodyNoTarget` — verify error when body present without target
+- `TestSend_RespondsTo_MissingSocket` — verify warning printed, message still sent if body present
 
 **`message/delivery_test.go`**:
 - `TestDeliver_ExpectsResponse_Format` — verify annotation in delivered message
@@ -209,3 +233,12 @@ trigger. All fire at idle, delivered sequentially.
   delivered via trigger
 - Multiple pending: send two expects-response messages, verify both create
   independent triggers
+
+## Review Disposition
+
+| # | Reviewer | Severity | Summary | Disposition | Notes |
+|---|----------|----------|---------|-------------|-------|
+| 1 | h2-reviewer | P1 | Non-atomic send+trigger creation | Incorporated | Added error semantics: CLI exits non-zero on trigger_add failure, prints warning that message was delivered but tracking not created |
+| 2 | h2-reviewer | P1 | 8-char ID collision handling | Incorporated | Kept 8-char IDs, added collision behavior: trigger_add rejects on conflict, CLI regenerates once and retries |
+| 3 | h2-reviewer | P2 | responds-to target semantics | Incorporated | Target required when body present, optional for close-only mode; added validation rules |
+| 4 | h2-reviewer | P2 | Test plan missing failure paths | Incorporated | Added 6 failure-path tests: trigger_add failure, ID collision, missing socket, body-without-target |
