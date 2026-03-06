@@ -449,7 +449,7 @@ func TestNativeSessionLogPath(t *testing.T) {
 			profile:   "default",
 			cwd:       "/Users/dcosson/projects/h2",
 			sessionID: "abc-123",
-			want:      "/home/user/.h2/claude-config/default/projects/Users-dcosson-projects-h2/abc-123.jsonl",
+			want:      "/home/user/.h2/claude-config/default/projects/-Users-dcosson-projects-h2/abc-123.jsonl",
 		},
 		{
 			name:      "empty config prefix",

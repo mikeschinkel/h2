@@ -263,7 +263,6 @@ func (h *ClaudeCodeHarness) NativeSessionLogPath() string {
 		return ""
 	}
 	sanitized := strings.ReplaceAll(cwd, string(filepath.Separator), "-")
-	sanitized = strings.TrimPrefix(sanitized, "-")
 	return filepath.Join(configDir, "projects", sanitized, sessionID+".jsonl")
 }
 
