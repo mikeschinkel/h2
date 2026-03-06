@@ -434,38 +434,43 @@ func TestHandleOutput_Noop(t *testing.T) {
 	h.HandleOutput()
 }
 
-func TestResolveNativeSessionLogPath(t *testing.T) {
+func TestNativeSessionLogPath(t *testing.T) {
 	tests := []struct {
 		name      string
-		configDir string
+		prefix    string
+		profile   string
 		cwd       string
 		sessionID string
 		want      string
 	}{
 		{
 			name:      "standard path",
-			configDir: "/home/user/.h2/claude-config/default",
+			prefix:    "/home/user/.h2/claude-config",
+			profile:   "default",
 			cwd:       "/Users/dcosson/projects/h2",
 			sessionID: "abc-123",
 			want:      "/home/user/.h2/claude-config/default/projects/Users-dcosson-projects-h2/abc-123.jsonl",
 		},
 		{
-			name:      "empty config dir",
-			configDir: "",
+			name:      "empty config prefix",
+			prefix:    "",
+			profile:   "default",
 			cwd:       "/tmp",
 			sessionID: "abc",
 			want:      "",
 		},
 		{
 			name:      "empty cwd",
-			configDir: "/config",
+			prefix:    "/config",
+			profile:   "default",
 			cwd:       "",
 			sessionID: "abc",
 			want:      "",
 		},
 		{
 			name:      "empty session id",
-			configDir: "/config",
+			prefix:    "/config",
+			profile:   "default",
 			cwd:       "/tmp",
 			sessionID: "",
 			want:      "",
@@ -473,9 +478,18 @@ func TestResolveNativeSessionLogPath(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ResolveNativeSessionLogPath(tt.configDir, tt.cwd, tt.sessionID)
+			rc := &config.RuntimeConfig{
+				HarnessConfigPathPrefix: tt.prefix,
+				Profile:                 tt.profile,
+				CWD:                     tt.cwd,
+				SessionID:               tt.sessionID,
+			}
+			h := New(rc, nil)
+			// Set sessionID to match what PrepareForLaunch would set.
+			h.sessionID = tt.sessionID
+			got := h.NativeSessionLogPath()
 			if got != tt.want {
-				t.Errorf("ResolveNativeSessionLogPath() = %q, want %q", got, tt.want)
+				t.Errorf("NativeSessionLogPath() = %q, want %q", got, tt.want)
 			}
 		})
 	}

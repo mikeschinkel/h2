@@ -232,11 +232,6 @@ func (h *ClaudeCodeHarness) OtelPort() int {
 	return 0
 }
 
-// SetSessionLogPath configures the path to Claude Code's session JSONL
-// for the session log tailer. Must be called before Start().
-func (h *ClaudeCodeHarness) SetSessionLogPath(path string) {
-	h.sessionLogPath = path
-}
 
 func resolveSessionDir(agentName, sessionID string) string {
 	if agentName != "" {
@@ -253,14 +248,17 @@ func resolveSessionLogPath(agentName, sessionID string) string {
 	return filepath.Join(sessionDir, "session.jsonl")
 }
 
-// ResolveNativeSessionLogPath returns the path to Claude Code's native session
+// NativeSessionLogPath returns the path to Claude Code's native session
 // JSONL log file within its config directory. Claude Code stores logs at:
 //
 //	<configDir>/projects/<sanitized-cwd>/<sessionID>.jsonl
 //
 // The CWD is sanitized by replacing path separators with dashes and stripping
-// the leading dash. Returns empty string if any parameter is empty.
-func ResolveNativeSessionLogPath(configDir, cwd, sessionID string) string {
+// the leading dash. Returns empty string if configDir, CWD, or sessionID is empty.
+func (h *ClaudeCodeHarness) NativeSessionLogPath() string {
+	configDir := h.rc.HarnessConfigDir()
+	cwd := h.rc.CWD
+	sessionID := h.sessionID
 	if configDir == "" || cwd == "" || sessionID == "" {
 		return ""
 	}
