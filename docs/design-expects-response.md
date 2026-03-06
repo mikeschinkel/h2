@@ -85,10 +85,11 @@ When `h2 send --responds-to <id> [target] ["body"]` is called:
 1. Validate arguments: if body is present, target must also be present.
 2. Resolve self via `resolveActor()`.
 3. Find own daemon socket.
-4. Send `trigger_remove` request for the given ID to own daemon. This removes
-   the reminder trigger. If socket not found, warn and continue.
-5. If body is non-empty, send the message to the target as a normal `h2 send`.
-6. If body is empty, done — obligation closed, nothing sent.
+4. If body is non-empty, send the message to the target first. If send fails,
+   exit non-zero — the trigger is **not** removed, so the reminder stays active.
+5. Send `trigger_remove` request for the given ID to own daemon. If socket not
+   found, warn and continue (best-effort).
+6. If body was empty (close-only), done — obligation closed, nothing sent.
 
 ### Sequence Diagram
 
@@ -107,9 +108,9 @@ sequenceDiagram
     Note over Agent: Agent does work...
 
     alt Agent responds
+        Agent->>Sender: h2 send "Coverage is 85%"
         Agent->>TE: trigger_remove("a1b2c3d4")
         TE-->>Agent: ok
-        Agent->>Sender: h2 send "Coverage is 85%"
     else Agent goes idle without responding
         TE->>Agent: [h2 reminder ...] (trigger fires, auto-removed)
     end
@@ -131,12 +132,15 @@ sequenceDiagram
        If second attempt also collides, print error and exit non-zero.
      - If `trigger_add` fails for any other reason (socket error, daemon down):
        print warning to stderr: `"warning: message delivered but response tracking
-       not created: <error>"`. Exit non-zero. The message was already delivered
-       and is still useful — no rollback needed.
+       not created: <error>"`. Exit with code **2** (distinct from exit 1 for
+       total failure). This lets callers distinguish "delivered without tracking"
+       from "nothing happened" and avoid naive retries that would duplicate the
+       message. The message was already delivered and is still useful — no
+       rollback needed.
 - When `--responds-to` is set:
-  1. Send `trigger_remove` to own daemon (best-effort — warn if socket not found).
-  2. If body is non-empty, target argument is **required**. Send message to target
-     as normal.
+  1. If body is non-empty, target argument is **required**. Send message to target
+     first. If send fails, exit non-zero — trigger is NOT removed (reminder stays).
+  2. Send `trigger_remove` to own daemon (best-effort — warn if socket not found).
   3. If body is empty, target argument is **optional** (ignored if provided). The
      trigger_remove goes to own daemon only. Exit successfully.
 - Body is optional when `--responds-to` is set.
@@ -201,6 +205,12 @@ TriggerEngine. The CLI regenerates the ID once and retries. A second collision
 is a fatal error (exit non-zero). At ~4 billion possible values and typically
 single-digit active triggers per agent, collisions are extremely unlikely.
 
+**No sender-context binding on closure**: Obligation closure is keyed only by
+trigger ID — there is no validation that the closer is the original sender or
+that the target matches. This is intentional: the ID space is large enough that
+accidental wrong-ID closure is a user error, not a design gap. The trigger name
+(`expects-response-<id>`) provides human-readable context for debugging.
+
 **Multiple expects-response messages pending**: Each creates its own independent
 trigger. All fire at idle, delivered sequentially.
 
@@ -234,7 +244,7 @@ trigger. All fire at idle, delivered sequentially.
 - Multiple pending: send two expects-response messages, verify both create
   independent triggers
 
-## Review Disposition
+## Round 1 Review Disposition
 
 | # | Reviewer | Severity | Summary | Disposition | Notes |
 |---|----------|----------|---------|-------------|-------|
@@ -242,3 +252,11 @@ trigger. All fire at idle, delivered sequentially.
 | 2 | h2-reviewer | P1 | 8-char ID collision handling | Incorporated | Kept 8-char IDs, added collision behavior: trigger_add rejects on conflict, CLI regenerates once and retries |
 | 3 | h2-reviewer | P2 | responds-to target semantics | Incorporated | Target required when body present, optional for close-only mode; added validation rules |
 | 4 | h2-reviewer | P2 | Test plan missing failure paths | Incorporated | Added 6 failure-path tests: trigger_add failure, ID collision, missing socket, body-without-target |
+
+## Round 2 Review Disposition
+
+| # | Reviewer | Severity | Summary | Disposition | Notes |
+|---|----------|----------|---------|-------------|-------|
+| 1 | h2-reviewer | P1 | responds-to clears trigger before confirming delivery | Incorporated | Reordered: send response first, then trigger_remove on success; send failure preserves trigger |
+| 2 | h2-reviewer | P2 | Obligation closure not bound to sender metadata | Not Incorporated | Intentional: closure by trigger ID only, wrong-ID is user error; added explicit edge case note |
+| 3 | h2-reviewer | P2 | Non-zero exit after delivery causes duplicate retries | Incorporated | Added distinct exit code 2 for "delivered without tracking" vs exit 1 for total failure |
