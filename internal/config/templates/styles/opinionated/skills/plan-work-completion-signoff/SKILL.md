@@ -67,6 +67,21 @@ Every deviation between plan and implementation must be classified into one of f
 4. **Majority Missing → Not Implemented.** If the bulk of the plan (>70%) is unimplemented, use "Not Implemented" rather than "Partial."
 5. **When in doubt, classify up** (more severe). It's better to flag something as Contractual and have the orchestrator downgrade it than to miss a real gap.
 
+### The "Structural" Litmus Test
+
+The key question for classifying a deviation as Structural vs Contractual/Missing is: **would an end user, operator, or consuming component observe the difference?**
+
+If the answer is yes — the deviation is visible outside the implementation internals — it is **not Structural**. Structural deviations are strictly internal reorganizations that are invisible to anything outside the package.
+
+Common misclassifications to watch for:
+
+- **Missing runnable artifacts**: Plan says a binary, CLI command, or build target should exist but only library code was written. The logic is "all there" internally but nobody can actually use it. → **Missing**, not Structural.
+- **Missing or changed observable output**: Plan specifies log formats, error messages, metric names, API response shapes, or config file formats, but the implementation produces different output or no output. → **Contractual**, not Structural.
+- **Deferred scope disguised as deviation**: Implementation skips a planned feature and calls it "out of scope for this deliverable." If the plan says it should be there, its absence is **Missing** regardless of the reason.
+- **Integration gaps**: Component A exists and component B exists, but the plan says A calls B and in practice nothing wires them together. Both "work" in isolation but the system doesn't function as designed. → **Contractual**, not Structural.
+
+When in doubt, ask: "If I handed this to someone who only read the plan, would they be confused or blocked?" If yes, classify up.
+
 ### How to Detect Contractual Deviations
 
 Contractual deviations are the hardest to spot because the code may "work" — tests pass, the feature runs. The deviation is in the *interface between components*, not in the component itself. Look for:
