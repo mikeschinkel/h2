@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"h2/internal/session/agent/harness"
+	"h2/internal/config"
 	"h2/internal/session/agent/monitor"
 )
 
@@ -21,10 +21,10 @@ import (
 // Verifies: session ID discovery, token counting, tool tracking, state transitions.
 func TestIntegration_FullPipeline(t *testing.T) {
 	// 1. Create harness and monitor, wire them together.
-	h := New(harness.HarnessConfig{}, nil)
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
 	mon := monitor.New()
 
-	cfg, err := h.PrepareForLaunch("test-codex", "", false)
+	cfg, err := h.PrepareForLaunch(false)
 	if err != nil {
 		t.Fatalf("PrepareForLaunch: %v", err)
 	}
@@ -140,10 +140,10 @@ func TestIntegration_FullPipeline(t *testing.T) {
 // TestIntegration_MultipleLogPayloads verifies that the harness handles
 // multiple log records in a single /v1/logs POST (batch delivery).
 func TestIntegration_MultipleLogPayloads(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
 	mon := monitor.New()
 
-	_, err := h.PrepareForLaunch("test-codex", "", false)
+	_, err := h.PrepareForLaunch(false)
 	if err != nil {
 		t.Fatalf("PrepareForLaunch: %v", err)
 	}

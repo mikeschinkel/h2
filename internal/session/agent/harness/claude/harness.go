@@ -23,8 +23,8 @@ import (
 func init() {
 	harness.Register(harness.HarnessSpec{
 		Names: []string{"claude_code"},
-		Factory: func(cfg harness.HarnessConfig, log *activitylog.Logger) harness.Harness {
-			return New(cfg, log)
+		Factory: func(rc *config.RuntimeConfig, log *activitylog.Logger) harness.Harness {
+			return New(rc, log)
 		},
 		DefaultCommand: "claude",
 	})
@@ -32,8 +32,7 @@ func init() {
 
 // ClaudeCodeHarness implements harness.Harness for Claude Code.
 type ClaudeCodeHarness struct {
-	configDir   string
-	model       string
+	rc          *config.RuntimeConfig
 	activityLog *activitylog.Logger
 
 	otelServer     *otelserver.OtelServer
@@ -47,14 +46,13 @@ type ClaudeCodeHarness struct {
 }
 
 // New creates a ClaudeCodeHarness.
-func New(cfg harness.HarnessConfig, log *activitylog.Logger) *ClaudeCodeHarness {
+func New(rc *config.RuntimeConfig, log *activitylog.Logger) *ClaudeCodeHarness {
 	if log == nil {
 		log = activitylog.Nop()
 	}
 	ch := make(chan monitor.AgentEvent, 256)
 	return &ClaudeCodeHarness{
-		configDir:    cfg.ConfigDir,
-		model:        cfg.Model,
+		rc:           rc,
 		activityLog:  log,
 		internalCh:   ch,
 		eventHandler: NewEventHandler(ch, log),
@@ -73,44 +71,45 @@ func (h *ClaudeCodeHarness) SupportsResume() bool { return true }
 
 // --- Config (called before launch) ---
 
-// BuildCommandArgs maps role config to Claude Code CLI flags, combined with
-// PrependArgs and ExtraArgs into the complete child process argument list.
-// When ResumeSessionID is set, only --resume is emitted — Claude Code
-// restores all other settings (model, instructions, etc.) from the session.
-func (h *ClaudeCodeHarness) BuildCommandArgs(cfg harness.CommandArgsConfig) []string {
+// BuildCommandArgs maps RuntimeConfig to Claude Code CLI flags, combined with
+// prependArgs and extraArgs into the complete child process argument list.
+// When ResumeSessionID is set (via the session's resume flow), only --resume
+// is emitted — Claude Code restores all settings from the session.
+func (h *ClaudeCodeHarness) BuildCommandArgs(prependArgs, extraArgs []string) []string {
 	var roleArgs []string
-	if cfg.ResumeSessionID != "" {
+	rc := h.rc
+	if rc.ResumeSessionID != "" {
 		// Resume mode: only pass --resume, no other flags.
-		roleArgs = append(roleArgs, "--resume", cfg.ResumeSessionID)
-		return harness.CombineArgs(cfg, roleArgs)
+		roleArgs = append(roleArgs, "--resume", rc.ResumeSessionID)
+		return harness.CombineArgs(prependArgs, extraArgs, roleArgs)
 	}
-	if cfg.SessionID != "" {
-		roleArgs = append(roleArgs, "--session-id", cfg.SessionID)
+	if rc.SessionID != "" {
+		roleArgs = append(roleArgs, "--session-id", rc.SessionID)
 	}
-	if cfg.SystemPrompt != "" {
-		roleArgs = append(roleArgs, "--system-prompt", cfg.SystemPrompt)
+	if rc.SystemPrompt != "" {
+		roleArgs = append(roleArgs, "--system-prompt", rc.SystemPrompt)
 	}
-	if cfg.Instructions != "" {
-		roleArgs = append(roleArgs, "--append-system-prompt", cfg.Instructions)
+	if rc.Instructions != "" {
+		roleArgs = append(roleArgs, "--append-system-prompt", rc.Instructions)
 	}
-	if cfg.Model != "" {
-		roleArgs = append(roleArgs, "--model", cfg.Model)
+	if rc.Model != "" {
+		roleArgs = append(roleArgs, "--model", rc.Model)
 	}
-	if cfg.ClaudePermissionMode != "" {
-		roleArgs = append(roleArgs, "--permission-mode", cfg.ClaudePermissionMode)
+	if rc.ClaudePermissionMode != "" {
+		roleArgs = append(roleArgs, "--permission-mode", rc.ClaudePermissionMode)
 	}
-	for _, dir := range cfg.AdditionalDirs {
+	for _, dir := range rc.AdditionalDirs {
 		roleArgs = append(roleArgs, "--add-dir", dir)
 	}
-	return harness.CombineArgs(cfg, roleArgs)
+	return harness.CombineArgs(prependArgs, extraArgs, roleArgs)
 }
 
 // BuildCommandEnvVars returns env vars for Claude Code (CLAUDE_CONFIG_DIR).
-// Uses the stored configDir from HarnessConfig instead of loading role.
 func (h *ClaudeCodeHarness) BuildCommandEnvVars(h2Dir string) map[string]string {
-	if h.configDir != "" {
+	configDir := h.rc.HarnessConfigDir()
+	if configDir != "" {
 		return map[string]string{
-			"CLAUDE_CONFIG_DIR": h.configDir,
+			"CLAUDE_CONFIG_DIR": configDir,
 		}
 	}
 	return nil
@@ -118,10 +117,11 @@ func (h *ClaudeCodeHarness) BuildCommandEnvVars(h2Dir string) map[string]string 
 
 // EnsureConfigDir creates the Claude config directory and writes default settings.
 func (h *ClaudeCodeHarness) EnsureConfigDir(h2Dir string) error {
-	if h.configDir == "" {
+	configDir := h.rc.HarnessConfigDir()
+	if configDir == "" {
 		return nil
 	}
-	return config.EnsureClaudeConfigDir(h.configDir)
+	return config.EnsureClaudeConfigDir(configDir)
 }
 
 // --- Launch (called once, before child process starts) ---
@@ -129,12 +129,14 @@ func (h *ClaudeCodeHarness) EnsureConfigDir(h2Dir string) error {
 // PrepareForLaunch creates the OTEL server and returns the env vars and
 // CLI args needed to launch Claude Code with telemetry enabled.
 // When dryRun is true, returns placeholder env vars without starting a server.
-func (h *ClaudeCodeHarness) PrepareForLaunch(agentName, sessionID string, dryRun bool) (harness.LaunchConfig, error) {
+func (h *ClaudeCodeHarness) PrepareForLaunch(dryRun bool) (harness.LaunchConfig, error) {
+	sessionID := h.rc.SessionID
 	if sessionID != "" {
 		h.sessionID = sessionID
 	} else {
 		h.sessionID = uuid.New().String()
 	}
+	agentName := h.rc.AgentName
 	h.sessionLogPath = resolveSessionLogPath(agentName, h.sessionID)
 	h.eventHandler.SetExpectedSessionID(h.sessionID)
 	h.eventHandler.ConfigureDebug(resolveDebugPath(agentName, h.sessionID))

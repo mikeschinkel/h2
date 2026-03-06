@@ -3,10 +3,12 @@ package harness
 import (
 	"strings"
 	"testing"
+
+	"h2/internal/config"
 )
 
 func TestResolve_UnknownType(t *testing.T) {
-	_, err := Resolve(HarnessConfig{HarnessType: "unknown"}, nil)
+	_, err := Resolve(&config.RuntimeConfig{HarnessType: "unknown"}, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown harness type")
 	}
@@ -19,7 +21,7 @@ func TestResolve_UnknownType(t *testing.T) {
 }
 
 func TestResolve_GenericWithoutCommand(t *testing.T) {
-	_, err := Resolve(HarnessConfig{HarnessType: "generic"}, nil)
+	_, err := Resolve(&config.RuntimeConfig{HarnessType: "generic"}, nil)
 	if err == nil {
 		t.Fatal("expected error for generic harness without command")
 	}
@@ -31,7 +33,7 @@ func TestResolve_GenericWithoutCommand(t *testing.T) {
 func TestResolve_GenericWithCommand_NotRegistered(t *testing.T) {
 	// Without importing harness/generic, the factory is not registered.
 	// Skip if already registered.
-	h, err := Resolve(HarnessConfig{HarnessType: "generic", Command: "bash"}, nil)
+	h, err := Resolve(&config.RuntimeConfig{HarnessType: "generic", Command: "bash"}, nil)
 	if h != nil {
 		t.Skip("generic harness already registered")
 	}
@@ -49,7 +51,7 @@ func TestResolve_ClaudeCode_NotRegistered(t *testing.T) {
 	// the full Resolve → claude.New path live in resolve_test.go (external test package).
 	//
 	// Skip if already registered (e.g. if run alongside integration tests).
-	h, err := Resolve(HarnessConfig{HarnessType: "claude_code"}, nil)
+	h, err := Resolve(&config.RuntimeConfig{HarnessType: "claude_code"}, nil)
 	if h != nil {
 		t.Skip("claude harness already registered (running with integration tests)")
 	}
@@ -64,7 +66,7 @@ func TestResolve_ClaudeCode_NotRegistered(t *testing.T) {
 func TestResolve_Codex_NotRegistered(t *testing.T) {
 	// Without importing harness/codex, the factory is not registered.
 	// Skip if already registered.
-	h, err := Resolve(HarnessConfig{HarnessType: "codex"}, nil)
+	h, err := Resolve(&config.RuntimeConfig{HarnessType: "codex"}, nil)
 	if h != nil {
 		t.Skip("codex harness already registered")
 	}
@@ -77,7 +79,7 @@ func TestResolve_Codex_NotRegistered(t *testing.T) {
 }
 
 func TestResolve_EmptyType(t *testing.T) {
-	_, err := Resolve(HarnessConfig{HarnessType: ""}, nil)
+	_, err := Resolve(&config.RuntimeConfig{HarnessType: ""}, nil)
 	if err == nil {
 		t.Fatal("expected error for empty harness type")
 	}

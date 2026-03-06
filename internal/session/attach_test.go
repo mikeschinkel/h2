@@ -10,6 +10,7 @@ import (
 
 	"github.com/vito/midterm"
 
+	"h2/internal/config"
 	"h2/internal/session/client"
 	"h2/internal/session/message"
 	"h2/internal/session/virtualterminal"
@@ -18,7 +19,14 @@ import (
 // newTestDaemon creates a Daemon with a properly initialized VT suitable
 // for attach tests. No real child process is started.
 func newTestDaemon() *Daemon {
-	s := New("test", "true", nil)
+	s := NewFromConfig(&config.RuntimeConfig{
+		AgentName:   "test",
+		Command:     "true",
+		HarnessType: "generic",
+		SessionID:   "test-uuid",
+		CWD:         "/tmp",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	})
 	vt := &virtualterminal.VT{
 		Rows: 24, Cols: 80, ChildRows: 22,
 		Vt: midterm.NewTerminal(22, 80),

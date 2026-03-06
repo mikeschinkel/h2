@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"h2/internal/config"
 	"h2/internal/session/agent/harness"
 	"h2/internal/session/agent/monitor"
 )
@@ -14,7 +15,7 @@ import (
 var _ harness.Harness = (*CodexHarness)(nil)
 
 func TestNew(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
 	if h == nil {
 		t.Fatal("expected non-nil harness")
 	}
@@ -23,21 +24,21 @@ func TestNew(t *testing.T) {
 // --- Identity tests ---
 
 func TestName(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
 	if h.Name() != "codex" {
 		t.Errorf("Name() = %q, want %q", h.Name(), "codex")
 	}
 }
 
 func TestCommand(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
 	if h.Command() != "codex" {
 		t.Errorf("Command() = %q, want %q", h.Command(), "codex")
 	}
 }
 
 func TestDisplayCommand(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
 	if h.DisplayCommand() != "codex" {
 		t.Errorf("DisplayCommand() = %q, want %q", h.DisplayCommand(), "codex")
 	}
@@ -46,16 +47,16 @@ func TestDisplayCommand(t *testing.T) {
 // --- Config tests ---
 
 func TestBuildCommandArgs_Instructions(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
-	args := h.BuildCommandArgs(harness.CommandArgsConfig{Instructions: "Do testing"})
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z", Instructions: "Do testing"}, nil)
+	args := h.BuildCommandArgs(nil, nil)
 	if len(args) != 2 || args[0] != "-c" || args[1] != `instructions="Do testing"` {
 		t.Fatalf(`expected [-c instructions="Do testing"], got %v`, args)
 	}
 }
 
 func TestBuildCommandArgs_InstructionsMultiline(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
-	args := h.BuildCommandArgs(harness.CommandArgsConfig{Instructions: "Line 1\nLine 2\nSay \"hello\""})
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z", Instructions: "Line 1\nLine 2\nSay \"hello\""}, nil)
+	args := h.BuildCommandArgs(nil, nil)
 	// json.Marshal escapes newlines and quotes for Codex -c JSON parsing.
 	want := `instructions="Line 1\nLine 2\nSay \"hello\""`
 	if len(args) < 2 || args[1] != want {
@@ -64,24 +65,24 @@ func TestBuildCommandArgs_InstructionsMultiline(t *testing.T) {
 }
 
 func TestBuildCommandArgs_Model(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
-	args := h.BuildCommandArgs(harness.CommandArgsConfig{Model: "gpt-4o"})
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z", Model: "gpt-4o"}, nil)
+	args := h.BuildCommandArgs(nil, nil)
 	if len(args) != 2 || args[0] != "--model" || args[1] != "gpt-4o" {
 		t.Fatalf("expected [--model gpt-4o], got %v", args)
 	}
 }
 
 func TestBuildCommandArgs_EmptyConfig_NoFlags(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
-	args := h.BuildCommandArgs(harness.CommandArgsConfig{})
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
+	args := h.BuildCommandArgs(nil, nil)
 	if len(args) != 0 {
 		t.Fatalf("expected [] for empty config, got %v", args)
 	}
 }
 
 func TestBuildCommandArgs_IgnoresSessionID(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
-	args := h.BuildCommandArgs(harness.CommandArgsConfig{SessionID: "some-uuid"})
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z", SessionID: "some-uuid"}, nil)
+	args := h.BuildCommandArgs(nil, nil)
 	for _, arg := range args {
 		if arg == "--session-id" {
 			t.Fatal("Codex should not include --session-id")
@@ -93,10 +94,8 @@ func TestBuildCommandArgs_IgnoresSessionID(t *testing.T) {
 }
 
 func TestBuildCommandArgs_IgnoresUnsupported(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
-	args := h.BuildCommandArgs(harness.CommandArgsConfig{
-		SystemPrompt: "Should be ignored",
-	})
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z", SystemPrompt: "Should be ignored"}, nil)
+	args := h.BuildCommandArgs(nil, nil)
 	if len(args) != 0 {
 		t.Fatalf("expected [] (unsupported fields ignored), got %v", args)
 	}
@@ -105,8 +104,8 @@ func TestBuildCommandArgs_IgnoresUnsupported(t *testing.T) {
 // --- CodexAskForApproval passthrough tests ---
 
 func TestBuildCommandArgs_CodexAskForApproval(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
-	args := h.BuildCommandArgs(harness.CommandArgsConfig{CodexAskForApproval: "never"})
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z", CodexAskForApproval: "never"}, nil)
+	args := h.BuildCommandArgs(nil, nil)
 	expected := []string{"--ask-for-approval", "never"}
 	if len(args) != len(expected) {
 		t.Fatalf("expected %v, got %v", expected, args)
@@ -119,8 +118,8 @@ func TestBuildCommandArgs_CodexAskForApproval(t *testing.T) {
 }
 
 func TestBuildCommandArgs_CodexAskForApproval_OnRequest(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
-	args := h.BuildCommandArgs(harness.CommandArgsConfig{CodexAskForApproval: "on-request"})
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z", CodexAskForApproval: "on-request"}, nil)
+	args := h.BuildCommandArgs(nil, nil)
 	expected := []string{"--ask-for-approval", "on-request"}
 	if len(args) != len(expected) {
 		t.Fatalf("expected %v, got %v", expected, args)
@@ -133,8 +132,8 @@ func TestBuildCommandArgs_CodexAskForApproval_OnRequest(t *testing.T) {
 }
 
 func TestBuildCommandArgs_CodexAskForApproval_Untrusted(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
-	args := h.BuildCommandArgs(harness.CommandArgsConfig{CodexAskForApproval: "untrusted"})
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z", CodexAskForApproval: "untrusted"}, nil)
+	args := h.BuildCommandArgs(nil, nil)
 	expected := []string{"--ask-for-approval", "untrusted"}
 	if len(args) != len(expected) {
 		t.Fatalf("expected %v, got %v", expected, args)
@@ -147,8 +146,8 @@ func TestBuildCommandArgs_CodexAskForApproval_Untrusted(t *testing.T) {
 }
 
 func TestBuildCommandArgs_CodexSandboxMode(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
-	args := h.BuildCommandArgs(harness.CommandArgsConfig{CodexSandboxMode: "workspace-write"})
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z", CodexSandboxMode: "workspace-write"}, nil)
+	args := h.BuildCommandArgs(nil, nil)
 	expected := []string{"--sandbox", "workspace-write"}
 	if len(args) != len(expected) {
 		t.Fatalf("expected %v, got %v", expected, args)
@@ -161,11 +160,8 @@ func TestBuildCommandArgs_CodexSandboxMode(t *testing.T) {
 }
 
 func TestBuildCommandArgs_CodexAskForApproval_WithSandbox(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
-	args := h.BuildCommandArgs(harness.CommandArgsConfig{
-		CodexAskForApproval: "never",
-		CodexSandboxMode:    "danger-full-access",
-	})
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z", CodexAskForApproval: "never", CodexSandboxMode: "danger-full-access"}, nil)
+	args := h.BuildCommandArgs(nil, nil)
 	expected := []string{"--ask-for-approval", "never", "--sandbox", "danger-full-access"}
 	if len(args) != len(expected) {
 		t.Fatalf("expected %v, got %v", expected, args)
@@ -178,10 +174,8 @@ func TestBuildCommandArgs_CodexAskForApproval_WithSandbox(t *testing.T) {
 }
 
 func TestBuildCommandArgs_AdditionalDirs(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
-	args := h.BuildCommandArgs(harness.CommandArgsConfig{
-		AdditionalDirs: []string{"/tmp/extra", "/home/project"},
-	})
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z", AdditionalDirs: []string{"/tmp/extra", "/home/project"}}, nil)
+	args := h.BuildCommandArgs(nil, nil)
 	// Should produce --add-dir /tmp/extra --add-dir /home/project.
 	found := 0
 	for i, arg := range args {
@@ -195,7 +189,7 @@ func TestBuildCommandArgs_AdditionalDirs(t *testing.T) {
 }
 
 func TestBuildCommandEnvVars_ReturnsNil(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
 	envVars := h.BuildCommandEnvVars("/home/user/.h2")
 	if envVars != nil {
 		t.Fatalf("expected nil env vars for codex without configDir, got %v", envVars)
@@ -203,7 +197,7 @@ func TestBuildCommandEnvVars_ReturnsNil(t *testing.T) {
 }
 
 func TestEnsureConfigDir_Noop(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
 	if err := h.EnsureConfigDir("/tmp/fake"); err != nil {
 		t.Fatalf("EnsureConfigDir should be no-op, got: %v", err)
 	}
@@ -212,8 +206,8 @@ func TestEnsureConfigDir_Noop(t *testing.T) {
 // --- Launch tests ---
 
 func TestPrepareForLaunch(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
-	cfg, err := h.PrepareForLaunch("test-agent", "", false)
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
+	cfg, err := h.PrepareForLaunch(false)
 	if err != nil {
 		t.Fatalf("PrepareForLaunch error: %v", err)
 	}
@@ -237,14 +231,14 @@ func TestPrepareForLaunch(t *testing.T) {
 // --- Runtime tests ---
 
 func TestHandleHookEvent_ReturnsFalse(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
 	if h.HandleHookEvent("PreToolUse", json.RawMessage("{}")) {
 		t.Fatal("HandleHookEvent should return false for Codex")
 	}
 }
 
 func TestStartForwardsEvents(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
 
 	// Manually push an event into the internal channel.
 	h.internalCh <- monitor.AgentEvent{
@@ -281,20 +275,20 @@ func TestStartForwardsEvents(t *testing.T) {
 }
 
 func TestStopBeforePrepare(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
 	// Stop should be safe even without PrepareForLaunch.
 	h.Stop()
 }
 
 func TestOtelPort_BeforePrepare(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
 	if h.OtelPort() != 0 {
 		t.Errorf("OtelPort before PrepareForLaunch should be 0, got %d", h.OtelPort())
 	}
 }
 
 func TestHandleOutput_Noop(t *testing.T) {
-	h := New(harness.HarnessConfig{}, nil)
+	h := New(&config.RuntimeConfig{HarnessType: "codex", Command: "codex", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"}, nil)
 	// Should not panic.
 	h.HandleOutput()
 }

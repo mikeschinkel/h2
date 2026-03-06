@@ -3,6 +3,7 @@ package session
 import (
 	"testing"
 
+	"h2/internal/config"
 	"h2/internal/session/agent/monitor"
 )
 
@@ -12,7 +13,14 @@ import (
 
 func TestOtelPort_NoAdapter(t *testing.T) {
 	// Generic agent has no adapter, so OtelPort returns 0.
-	s := New("test", "bash", nil)
+	s := NewFromConfig(&config.RuntimeConfig{
+		AgentName:   "test",
+		Command:     "bash",
+		HarnessType: "generic",
+		SessionID:   "test-uuid",
+		CWD:         "/tmp",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	})
 	defer s.Stop()
 
 	if port := s.OtelPort(); port != 0 {
@@ -21,7 +29,14 @@ func TestOtelPort_NoAdapter(t *testing.T) {
 }
 
 func TestMetrics_DefaultSnapshot(t *testing.T) {
-	s := New("test", "bash", nil)
+	s := NewFromConfig(&config.RuntimeConfig{
+		AgentName:   "test",
+		Command:     "bash",
+		HarnessType: "generic",
+		SessionID:   "test-uuid",
+		CWD:         "/tmp",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	})
 	defer s.Stop()
 
 	m := s.Metrics()

@@ -202,7 +202,7 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 			if err := ensureAgentSocketAvailable(name); err != nil {
 				return err
 			}
-			hcfg := commandHarnessConfig(cmdCommand)
+			cmdRC := buildCommandRuntimeConfig(cmdCommand)
 
 			sessionID := uuid.New().String()
 
@@ -215,25 +215,16 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 			// Build and write RuntimeConfig.
 			// Only set HarnessSessionID for Claude Code (h2 passes --session-id).
 			harnessSessionID := ""
-			if hcfg.HarnessType == "claude_code" {
+			if cmdRC.HarnessType == "claude_code" {
 				harnessSessionID = sessionID
-			}
-			// For command-mode, derive prefix from harness type.
-			// "default" profile is always used when no role is specified.
-			var cmdConfigPrefix string
-			switch hcfg.HarnessType {
-			case "claude_code":
-				cmdConfigPrefix = filepath.Join(config.ConfigDir(), "claude-config")
-			case "codex":
-				cmdConfigPrefix = filepath.Join(config.ConfigDir(), "codex-config")
 			}
 			rc := &config.RuntimeConfig{
 				AgentName:               name,
 				SessionID:               sessionID,
 				HarnessSessionID:        harnessSessionID,
-				HarnessType:             hcfg.HarnessType,
-				HarnessConfigPathPrefix: cmdConfigPrefix,
-				Profile:                 "default",
+				HarnessType:             cmdRC.HarnessType,
+				HarnessConfigPathPrefix: cmdRC.HarnessConfigPathPrefix,
+				Profile:                 cmdRC.Profile,
 				Command:                 cmdCommand,
 				Args:                    cmdArgs,
 				CWD:                     func() string { cwd, _ := os.Getwd(); return cwd }(),
@@ -308,10 +299,7 @@ func runResume(cmd *cobra.Command, args []string, detach bool, dryRun bool) erro
 	}
 
 	// Resolve harness to check resume support.
-	h, err := harness.Resolve(harness.HarnessConfig{
-		HarnessType: rc.HarnessType,
-		Command:     rc.Command,
-	}, nil)
+	h, err := harness.Resolve(rc, nil)
 	if err != nil {
 		return fmt.Errorf("resolve harness for resume: %w", err)
 	}
@@ -332,9 +320,10 @@ func runResume(cmd *cobra.Command, args []string, detach bool, dryRun bool) erro
 
 	if dryRun {
 		// Build the command args that the harness will use.
-		resumeArgs := h.BuildCommandArgs(harness.CommandArgsConfig{
-			ResumeSessionID: rc.HarnessSessionID,
-		})
+		// Set ResumeSessionID on rc so BuildCommandArgs picks it up.
+		rc.ResumeSessionID = rc.HarnessSessionID
+		resumeH, _ := harness.Resolve(rc, nil)
+		resumeArgs := resumeH.BuildCommandArgs(nil, nil)
 		fmt.Printf("Resume Agent: %s\n", name)
 		fmt.Printf("Config File: %s\n", filepath.Join(sessionDir, "session.metadata.json"))
 		fmt.Printf("Session ID: %s\n", rc.SessionID)

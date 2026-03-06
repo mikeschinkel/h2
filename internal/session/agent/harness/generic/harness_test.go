@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"h2/internal/config"
 	"h2/internal/session/agent/harness"
 	"h2/internal/session/agent/monitor"
 )
@@ -14,7 +15,7 @@ import (
 var _ harness.Harness = (*GenericHarness)(nil)
 
 func TestNew(t *testing.T) {
-	g := New(harness.HarnessConfig{Command: "bash"})
+	g := New(&config.RuntimeConfig{HarnessType: "generic", Command: "bash", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"})
 	if g == nil {
 		t.Fatal("expected non-nil harness")
 	}
@@ -23,21 +24,21 @@ func TestNew(t *testing.T) {
 // --- Identity tests ---
 
 func TestName(t *testing.T) {
-	g := New(harness.HarnessConfig{Command: "bash"})
+	g := New(&config.RuntimeConfig{HarnessType: "generic", Command: "bash", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"})
 	if g.Name() != "generic" {
 		t.Errorf("Name() = %q, want %q", g.Name(), "generic")
 	}
 }
 
 func TestCommand(t *testing.T) {
-	g := New(harness.HarnessConfig{Command: "bash"})
+	g := New(&config.RuntimeConfig{HarnessType: "generic", Command: "bash", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"})
 	if g.Command() != "bash" {
 		t.Errorf("Command() = %q, want %q", g.Command(), "bash")
 	}
 }
 
 func TestDisplayCommand(t *testing.T) {
-	g := New(harness.HarnessConfig{Command: "/usr/bin/python3"})
+	g := New(&config.RuntimeConfig{HarnessType: "generic", Command: "/usr/bin/python3", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"})
 	if g.DisplayCommand() != "/usr/bin/python3" {
 		t.Errorf("DisplayCommand() = %q, want %q", g.DisplayCommand(), "/usr/bin/python3")
 	}
@@ -46,18 +47,15 @@ func TestDisplayCommand(t *testing.T) {
 // --- Config no-ops ---
 
 func TestBuildCommandArgs_ReturnsNil(t *testing.T) {
-	g := New(harness.HarnessConfig{Command: "bash"})
-	args := g.BuildCommandArgs(harness.CommandArgsConfig{
-		Instructions: "Should be ignored",
-		Model:        "something",
-	})
-	if args != nil {
-		t.Fatalf("expected nil for generic type, got %v", args)
+	g := New(&config.RuntimeConfig{HarnessType: "generic", Command: "bash", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"})
+	args := g.BuildCommandArgs(nil, nil)
+	if len(args) != 0 {
+		t.Fatalf("expected empty for generic type, got %v", args)
 	}
 }
 
 func TestBuildCommandEnvVars_ReturnsNil(t *testing.T) {
-	g := New(harness.HarnessConfig{Command: "bash"})
+	g := New(&config.RuntimeConfig{HarnessType: "generic", Command: "bash", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"})
 	envVars := g.BuildCommandEnvVars("/home/user/.h2")
 	if envVars != nil {
 		t.Fatalf("expected nil env vars for generic, got %v", envVars)
@@ -65,7 +63,7 @@ func TestBuildCommandEnvVars_ReturnsNil(t *testing.T) {
 }
 
 func TestEnsureConfigDir_Noop(t *testing.T) {
-	g := New(harness.HarnessConfig{Command: "bash"})
+	g := New(&config.RuntimeConfig{HarnessType: "generic", Command: "bash", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"})
 	if err := g.EnsureConfigDir("/tmp/fake"); err != nil {
 		t.Fatalf("EnsureConfigDir should be no-op, got: %v", err)
 	}
@@ -74,8 +72,8 @@ func TestEnsureConfigDir_Noop(t *testing.T) {
 // --- Launch ---
 
 func TestPrepareForLaunch(t *testing.T) {
-	g := New(harness.HarnessConfig{Command: "bash"})
-	cfg, err := g.PrepareForLaunch("test-agent", "", false)
+	g := New(&config.RuntimeConfig{HarnessType: "generic", Command: "bash", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"})
+	cfg, err := g.PrepareForLaunch(false)
 	if err != nil {
 		t.Fatalf("PrepareForLaunch: %v", err)
 	}
@@ -88,8 +86,8 @@ func TestPrepareForLaunch(t *testing.T) {
 }
 
 func TestPrepareForLaunch_EmptyCommand(t *testing.T) {
-	g := New(harness.HarnessConfig{})
-	_, err := g.PrepareForLaunch("test-agent", "", false)
+	g := New(&config.RuntimeConfig{HarnessType: "generic", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"})
+	_, err := g.PrepareForLaunch(false)
 	if err == nil {
 		t.Fatal("expected error for empty command")
 	}
@@ -98,20 +96,20 @@ func TestPrepareForLaunch_EmptyCommand(t *testing.T) {
 // --- Runtime ---
 
 func TestHandleHookEvent_ReturnsFalse(t *testing.T) {
-	g := New(harness.HarnessConfig{Command: "bash"})
+	g := New(&config.RuntimeConfig{HarnessType: "generic", Command: "bash", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"})
 	if g.HandleHookEvent("PreToolUse", json.RawMessage("{}")) {
 		t.Fatal("HandleHookEvent should return false for generic")
 	}
 }
 
 func TestHandleOutput_BeforeStart(t *testing.T) {
-	g := New(harness.HarnessConfig{Command: "bash"})
+	g := New(&config.RuntimeConfig{HarnessType: "generic", Command: "bash", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"})
 	// Should not panic when collector is nil.
 	g.HandleOutput()
 }
 
 func TestStop_BeforeStart(t *testing.T) {
-	g := New(harness.HarnessConfig{Command: "bash"})
+	g := New(&config.RuntimeConfig{HarnessType: "generic", Command: "bash", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"})
 	// Should not panic when collector is nil.
 	g.Stop()
 }
@@ -122,8 +120,8 @@ func TestStart_BridgesOutputToEvents(t *testing.T) {
 	monitor.IdleThreshold = 20 * time.Millisecond
 	defer func() { monitor.IdleThreshold = origThreshold }()
 
-	g := New(harness.HarnessConfig{Command: "bash"})
-	if _, err := g.PrepareForLaunch("test", "", false); err != nil {
+	g := New(&config.RuntimeConfig{HarnessType: "generic", Command: "bash", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"})
+	if _, err := g.PrepareForLaunch(false); err != nil {
 		t.Fatalf("PrepareForLaunch: %v", err)
 	}
 	events := make(chan monitor.AgentEvent, 64)
@@ -181,8 +179,8 @@ func TestStart_BridgesOutputToEvents(t *testing.T) {
 }
 
 func TestStart_CancelReturns(t *testing.T) {
-	g := New(harness.HarnessConfig{Command: "bash"})
-	if _, err := g.PrepareForLaunch("test", "", false); err != nil {
+	g := New(&config.RuntimeConfig{HarnessType: "generic", Command: "bash", AgentName: "test", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z"})
+	if _, err := g.PrepareForLaunch(false); err != nil {
 		t.Fatalf("PrepareForLaunch: %v", err)
 	}
 	events := make(chan monitor.AgentEvent, 64)

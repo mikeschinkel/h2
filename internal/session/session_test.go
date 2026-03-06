@@ -11,6 +11,7 @@ import (
 	"github.com/vito/midterm"
 
 	"h2/internal/config"
+	"h2/internal/session/agent/harness"
 	"h2/internal/session/agent/monitor"
 	"h2/internal/session/client"
 	"h2/internal/session/message"
@@ -45,15 +46,28 @@ func waitForState(t *testing.T, s *Session, target monitor.State, timeout time.D
 // For GenericType agents, this starts the output collector bridge to the monitor.
 func startAgent(t *testing.T, s *Session) {
 	t.Helper()
-	if _, err := s.harness.PrepareForLaunch(s.Name, s.SessionID, false); err != nil {
-		t.Fatalf("PrepareForLaunch: %v", err)
+	if err := s.setupAgent(); err != nil {
+		t.Fatalf("setupAgent: %v", err)
 	}
 	s.startAgentPipeline(context.Background())
 }
 
+// testRC creates a RuntimeConfig suitable for testing with the given agent name, command, and args.
+func testRC(name, command string, args []string) *config.RuntimeConfig {
+	return &config.RuntimeConfig{
+		AgentName:   name,
+		Command:     command,
+		Args:        args,
+		HarnessType: "generic",
+		SessionID:   "test-uuid",
+		CWD:         "/tmp",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	}
+}
+
 func TestStateTransitions_ActiveToIdle(t *testing.T) {
 	setFastIdle(t)
-	s := New("test", "true", nil)
+	s := NewFromConfig(testRC("test", "true", nil))
 	defer s.Stop()
 
 	startAgent(t, s)
@@ -69,7 +83,7 @@ func TestStateTransitions_ActiveToIdle(t *testing.T) {
 
 func TestStateTransitions_IdleToActive(t *testing.T) {
 	setFastIdle(t)
-	s := New("test", "true", nil)
+	s := NewFromConfig(testRC("test", "true", nil))
 	defer s.Stop()
 
 	startAgent(t, s)
@@ -84,7 +98,7 @@ func TestStateTransitions_IdleToActive(t *testing.T) {
 
 func TestStateTransitions_Exited(t *testing.T) {
 	setFastIdle(t)
-	s := New("test", "true", nil)
+	s := NewFromConfig(testRC("test", "true", nil))
 	defer s.Stop()
 
 	startAgent(t, s)
@@ -105,7 +119,7 @@ func TestStateTransitions_Exited(t *testing.T) {
 
 func TestWaitForState_ReachesTarget(t *testing.T) {
 	setFastIdle(t)
-	s := New("test", "true", nil)
+	s := NewFromConfig(testRC("test", "true", nil))
 	defer s.Stop()
 
 	startAgent(t, s)
@@ -129,7 +143,7 @@ func TestWaitForState_ReachesTarget(t *testing.T) {
 
 func TestWaitForState_ContextCancelled(t *testing.T) {
 	setFastIdle(t)
-	s := New("test", "true", nil)
+	s := NewFromConfig(testRC("test", "true", nil))
 	defer s.Stop()
 
 	startAgent(t, s)
@@ -161,7 +175,7 @@ func TestWaitForState_ContextCancelled(t *testing.T) {
 
 func TestStateChanged_ClosesOnTransition(t *testing.T) {
 	setFastIdle(t)
-	s := New("test", "true", nil)
+	s := NewFromConfig(testRC("test", "true", nil))
 	defer s.Stop()
 
 	ch := s.StateChanged()
@@ -178,7 +192,7 @@ func TestStateChanged_ClosesOnTransition(t *testing.T) {
 }
 
 func TestSubmitInput(t *testing.T) {
-	s := New("test-agent", "true", nil)
+	s := NewFromConfig(testRC("test-agent", "true", nil))
 
 	s.SubmitInput("hello world", message.PriorityIdle)
 
@@ -206,7 +220,7 @@ func TestSubmitInput(t *testing.T) {
 }
 
 func TestSubmitInput_Interrupt(t *testing.T) {
-	s := New("test-agent", "true", nil)
+	s := NewFromConfig(testRC("test-agent", "true", nil))
 
 	s.SubmitInput("urgent", message.PriorityInterrupt)
 
@@ -220,7 +234,7 @@ func TestSubmitInput_Interrupt(t *testing.T) {
 }
 
 func TestHandleOutput_NonBlocking(t *testing.T) {
-	s := New("test", "true", nil)
+	s := NewFromConfig(testRC("test", "true", nil))
 
 	// HandleOutput should not block even when called repeatedly.
 	done := make(chan struct{})
@@ -258,7 +272,7 @@ func TestStateString(t *testing.T) {
 
 // newTestSession creates a Session with a VT suitable for testing passthrough locking.
 func newTestSession() *Session {
-	s := New("test", "true", nil)
+	s := NewFromConfig(testRC("test", "true", nil))
 	vt := &virtualterminal.VT{
 		Rows:      12,
 		Cols:      80,
@@ -448,9 +462,30 @@ func containsSubstring(s, sub string) bool {
 	return false
 }
 
+// newChildArgsSession creates a Session with a resolved harness for childArgs testing.
+// The harness is resolved directly (without setupAgent) to avoid needing H2_DIR.
+func newChildArgsSession(t *testing.T, rc *config.RuntimeConfig) *Session {
+	t.Helper()
+	s := NewFromConfig(rc)
+	h, err := harness.Resolve(rc, nil)
+	if err != nil {
+		t.Fatalf("resolve harness: %v", err)
+	}
+	s.harness = h
+	return s
+}
+
 func TestChildArgs_WithSessionID(t *testing.T) {
-	s := New("test", "claude", []string{"--verbose"})
-	s.SessionID = "550e8400-e29b-41d4-a716-446655440000"
+	rc := &config.RuntimeConfig{
+		AgentName:   "test",
+		Command:     "claude",
+		Args:        []string{"--verbose"},
+		HarnessType: "claude_code",
+		SessionID:   "550e8400-e29b-41d4-a716-446655440000",
+		CWD:         "/tmp",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	args := s.childArgs()
 
@@ -470,7 +505,16 @@ func TestChildArgs_WithSessionID(t *testing.T) {
 }
 
 func TestChildArgs_NoSessionID(t *testing.T) {
-	s := New("test", "claude", []string{"--verbose"})
+	rc := &config.RuntimeConfig{
+		AgentName:   "test",
+		Command:     "claude",
+		Args:        []string{"--verbose"},
+		HarnessType: "claude_code",
+		SessionID:   "",
+		CWD:         "/tmp",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	args := s.childArgs()
 
@@ -483,7 +527,15 @@ func TestChildArgs_NoSessionID(t *testing.T) {
 }
 
 func TestChildArgs_GenericNoPrepend(t *testing.T) {
-	s := New("test", "bash", []string{"-c", "echo hi"})
+	rc := &config.RuntimeConfig{
+		AgentName:   "test",
+		Command:     "bash",
+		Args:        []string{"-c", "echo hi"},
+		HarnessType: "generic",
+		CWD:         "/tmp",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	args := s.childArgs()
 
@@ -497,8 +549,16 @@ func TestChildArgs_GenericNoPrepend(t *testing.T) {
 
 func TestChildArgs_DoesNotMutateOriginal(t *testing.T) {
 	original := []string{"--verbose"}
-	s := New("test", "claude", original)
-	s.SessionID = "some-uuid"
+	rc := &config.RuntimeConfig{
+		AgentName:   "test",
+		Command:     "claude",
+		Args:        original,
+		HarnessType: "claude_code",
+		SessionID:   "some-uuid",
+		CWD:         "/tmp",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	_ = s.childArgs()
 
@@ -508,9 +568,17 @@ func TestChildArgs_DoesNotMutateOriginal(t *testing.T) {
 }
 
 func TestChildArgs_WithInstructions(t *testing.T) {
-	s := New("test", "claude", []string{"--verbose"})
-	s.SessionID = "550e8400-e29b-41d4-a716-446655440000"
-	s.Instructions = "You are a coding agent.\nWrite tests."
+	rc := &config.RuntimeConfig{
+		AgentName:    "test",
+		Command:      "claude",
+		Args:         []string{"--verbose"},
+		HarnessType:  "claude_code",
+		SessionID:    "550e8400-e29b-41d4-a716-446655440000",
+		Instructions: "You are a coding agent.\nWrite tests.",
+		CWD:          "/tmp",
+		StartedAt:    "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	args := s.childArgs()
 
@@ -533,9 +601,16 @@ func TestChildArgs_WithInstructions(t *testing.T) {
 }
 
 func TestChildArgs_EmptyInstructionsNoFlag(t *testing.T) {
-	s := New("test", "claude", []string{"--verbose"})
-	s.SessionID = "550e8400-e29b-41d4-a716-446655440000"
-	s.Instructions = ""
+	rc := &config.RuntimeConfig{
+		AgentName:   "test",
+		Command:     "claude",
+		Args:        []string{"--verbose"},
+		HarnessType: "claude_code",
+		SessionID:   "550e8400-e29b-41d4-a716-446655440000",
+		CWD:         "/tmp",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	args := s.childArgs()
 
@@ -551,8 +626,15 @@ func TestChildArgs_EmptyInstructionsNoFlag(t *testing.T) {
 }
 
 func TestChildArgs_InstructionsWithoutSessionID(t *testing.T) {
-	s := New("test", "claude", nil)
-	s.Instructions = "Do stuff"
+	rc := &config.RuntimeConfig{
+		AgentName:    "test",
+		Command:      "claude",
+		HarnessType:  "claude_code",
+		Instructions: "Do stuff",
+		CWD:          "/tmp",
+		StartedAt:    "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	args := s.childArgs()
 
@@ -569,8 +651,16 @@ func TestChildArgs_InstructionsWithoutSessionID(t *testing.T) {
 }
 
 func TestChildArgs_InstructionsNonClaude(t *testing.T) {
-	s := New("test", "bash", []string{"-c", "echo hi"})
-	s.Instructions = "Some instructions"
+	rc := &config.RuntimeConfig{
+		AgentName:    "test",
+		Command:      "bash",
+		Args:         []string{"-c", "echo hi"},
+		HarnessType:  "generic",
+		Instructions: "Some instructions",
+		CWD:          "/tmp",
+		StartedAt:    "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	args := s.childArgs()
 
@@ -584,10 +674,17 @@ func TestChildArgs_InstructionsNonClaude(t *testing.T) {
 }
 
 func TestChildArgs_InstructionsWithSpecialCharacters(t *testing.T) {
-	s := New("test", "claude", nil)
-	s.SessionID = "test-uuid"
 	instructions := "Use `backticks` and \"quotes\" and $VARS and\nnewlines\tand\ttabs"
-	s.Instructions = instructions
+	rc := &config.RuntimeConfig{
+		AgentName:    "test",
+		Command:      "claude",
+		HarnessType:  "claude_code",
+		SessionID:    "test-uuid",
+		Instructions: instructions,
+		CWD:          "/tmp",
+		StartedAt:    "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	args := s.childArgs()
 
@@ -608,9 +705,17 @@ func TestChildArgs_InstructionsWithSpecialCharacters(t *testing.T) {
 
 func TestChildArgs_InstructionsDoNotMutateOriginalArgs(t *testing.T) {
 	original := []string{"--verbose"}
-	s := New("test", "claude", original)
-	s.SessionID = "some-uuid"
-	s.Instructions = "Test instructions"
+	rc := &config.RuntimeConfig{
+		AgentName:    "test",
+		Command:      "claude",
+		Args:         original,
+		HarnessType:  "claude_code",
+		SessionID:    "some-uuid",
+		Instructions: "Test instructions",
+		CWD:          "/tmp",
+		StartedAt:    "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	_ = s.childArgs()
 
@@ -620,9 +725,16 @@ func TestChildArgs_InstructionsDoNotMutateOriginalArgs(t *testing.T) {
 }
 
 func TestChildArgs_SystemPrompt(t *testing.T) {
-	s := New("test", "claude", nil)
-	s.SessionID = "test-uuid"
-	s.SystemPrompt = "You are a custom agent."
+	rc := &config.RuntimeConfig{
+		AgentName:    "test",
+		Command:      "claude",
+		HarnessType:  "claude_code",
+		SessionID:    "test-uuid",
+		SystemPrompt: "You are a custom agent.",
+		CWD:          "/tmp",
+		StartedAt:    "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	args := s.childArgs()
 
@@ -639,10 +751,17 @@ func TestChildArgs_SystemPrompt(t *testing.T) {
 }
 
 func TestChildArgs_SystemPromptAndInstructions(t *testing.T) {
-	s := New("test", "claude", nil)
-	s.SessionID = "test-uuid"
-	s.SystemPrompt = "Custom system prompt"
-	s.Instructions = "Additional instructions"
+	rc := &config.RuntimeConfig{
+		AgentName:    "test",
+		Command:      "claude",
+		HarnessType:  "claude_code",
+		SessionID:    "test-uuid",
+		SystemPrompt: "Custom system prompt",
+		Instructions: "Additional instructions",
+		CWD:          "/tmp",
+		StartedAt:    "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	args := s.childArgs()
 
@@ -662,9 +781,16 @@ func TestChildArgs_SystemPromptAndInstructions(t *testing.T) {
 }
 
 func TestChildArgs_Model(t *testing.T) {
-	s := New("test", "claude", nil)
-	s.SessionID = "test-uuid"
-	s.Model = "claude-sonnet-4-5-20250929"
+	rc := &config.RuntimeConfig{
+		AgentName:   "test",
+		Command:     "claude",
+		HarnessType: "claude_code",
+		SessionID:   "test-uuid",
+		Model:       "claude-sonnet-4-5-20250929",
+		CWD:         "/tmp",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	args := s.childArgs()
 
@@ -677,9 +803,16 @@ func TestChildArgs_Model(t *testing.T) {
 }
 
 func TestChildArgs_ClaudePermissionMode(t *testing.T) {
-	s := New("test", "claude", nil)
-	s.SessionID = "test-uuid"
-	s.ClaudePermissionMode = "bypassPermissions"
+	rc := &config.RuntimeConfig{
+		AgentName:            "test",
+		Command:              "claude",
+		HarnessType:          "claude_code",
+		SessionID:            "test-uuid",
+		ClaudePermissionMode: "bypassPermissions",
+		CWD:                  "/tmp",
+		StartedAt:            "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	args := s.childArgs()
 
@@ -692,12 +825,20 @@ func TestChildArgs_ClaudePermissionMode(t *testing.T) {
 }
 
 func TestChildArgs_AllFieldsCombined(t *testing.T) {
-	s := New("test", "claude", []string{"--verbose"})
-	s.SessionID = "test-uuid"
-	s.SystemPrompt = "Custom prompt"
-	s.Instructions = "Extra instructions"
-	s.Model = "claude-opus-4-6"
-	s.ClaudePermissionMode = "plan"
+	rc := &config.RuntimeConfig{
+		AgentName:            "test",
+		Command:              "claude",
+		Args:                 []string{"--verbose"},
+		HarnessType:          "claude_code",
+		SessionID:            "test-uuid",
+		SystemPrompt:         "Custom prompt",
+		Instructions:         "Extra instructions",
+		Model:                "claude-opus-4-6",
+		ClaudePermissionMode: "plan",
+		CWD:                  "/tmp",
+		StartedAt:            "2024-01-01T00:00:00Z",
+	}
+	s := newChildArgsSession(t, rc)
 
 	args := s.childArgs()
 
@@ -737,8 +878,7 @@ func TestSetupAgent_LogDirUsesH2Dir(t *testing.T) {
 	config.ResetResolveCache()
 	t.Cleanup(config.ResetResolveCache)
 
-	s := New("test-agent", "true", nil)
-	s.HarnessType = "generic"
+	s := NewFromConfig(testRC("test-agent", "true", nil))
 	defer s.Stop()
 
 	if err := s.setupAgent(); err != nil {
@@ -749,143 +889,5 @@ func TestSetupAgent_LogDirUsesH2Dir(t *testing.T) {
 	logPath := filepath.Join(customH2Dir, "logs", "session-activity.jsonl")
 	if _, err := os.Stat(logPath); os.IsNotExist(err) {
 		t.Fatalf("activity log not created at expected path %s", logPath)
-	}
-}
-
-func TestResolveFullHarness_RoleWithRandomName(t *testing.T) {
-	// Create a custom h2 dir with a role that uses {{ randomName }}.
-	h2Dir := filepath.Join(t.TempDir(), "h2")
-	if err := os.MkdirAll(h2Dir, 0o755); err != nil {
-		t.Fatalf("create h2 dir: %v", err)
-	}
-	if err := config.WriteMarker(h2Dir); err != nil {
-		t.Fatalf("write marker: %v", err)
-	}
-
-	t.Setenv("H2_DIR", h2Dir)
-	config.ResetResolveCache()
-	t.Cleanup(config.ResetResolveCache)
-
-	// Create a role template that uses {{ randomName }} (like the default role).
-	rolesDir := filepath.Join(h2Dir, "roles")
-	if err := os.MkdirAll(rolesDir, 0o755); err != nil {
-		t.Fatalf("create roles dir: %v", err)
-	}
-	roleTmpl := `role_name: "{{ .RoleName }}"
-agent_name: "{{ randomName }}"
-agent_harness: claude_code
-`
-	if err := os.WriteFile(filepath.Join(rolesDir, "testrole.yaml.tmpl"), []byte(roleTmpl), 0o644); err != nil {
-		t.Fatalf("write role template: %v", err)
-	}
-
-	// resolveFullHarness should successfully load the role despite {{ randomName }}.
-	h, err := resolveFullHarness("claude", "testrole", nil)
-	if err != nil {
-		t.Fatalf("resolveFullHarness: %v", err)
-	}
-
-	// The harness should use the default profile ("default"), not the role name.
-	envVars := h.BuildCommandEnvVars(h2Dir)
-	want := filepath.Join(h2Dir, "claude-config", "default")
-	if got := envVars["CLAUDE_CONFIG_DIR"]; got != want {
-		t.Errorf("CLAUDE_CONFIG_DIR = %q, want %q", got, want)
-	}
-}
-
-func TestResolveFullHarness_MissingRoleReturnsError(t *testing.T) {
-	// Create a custom h2 dir without any role files.
-	h2Dir := filepath.Join(t.TempDir(), "h2")
-	if err := os.MkdirAll(h2Dir, 0o755); err != nil {
-		t.Fatalf("create h2 dir: %v", err)
-	}
-	if err := config.WriteMarker(h2Dir); err != nil {
-		t.Fatalf("write marker: %v", err)
-	}
-
-	t.Setenv("H2_DIR", h2Dir)
-	config.ResetResolveCache()
-	t.Cleanup(config.ResetResolveCache)
-
-	// A specified role that doesn't exist should return an error, not silently fall back.
-	_, err := resolveFullHarness("claude", "nonexistent-role", nil)
-	if err == nil {
-		t.Fatal("expected error for nonexistent role, got nil")
-	}
-}
-
-func TestResolveFullHarness_NoRoleUsesDefaultProfile(t *testing.T) {
-	// When no role is specified, the command-only fallback should use "default" profile.
-	h2Dir := filepath.Join(t.TempDir(), "h2")
-	if err := os.MkdirAll(h2Dir, 0o755); err != nil {
-		t.Fatalf("create h2 dir: %v", err)
-	}
-	if err := config.WriteMarker(h2Dir); err != nil {
-		t.Fatalf("write marker: %v", err)
-	}
-
-	t.Setenv("H2_DIR", h2Dir)
-	config.ResetResolveCache()
-	t.Cleanup(config.ResetResolveCache)
-
-	h, err := resolveFullHarness("claude", "", nil)
-	if err != nil {
-		t.Fatalf("resolveFullHarness: %v", err)
-	}
-
-	envVars := h.BuildCommandEnvVars(h2Dir)
-	want := filepath.Join(h2Dir, "claude-config", "default")
-	if got := envVars["CLAUDE_CONFIG_DIR"]; got != want {
-		t.Errorf("CLAUDE_CONFIG_DIR = %q, want %q", got, want)
-	}
-}
-
-func TestResolveFullHarness_InheritedRoleUsesDefaultProfile(t *testing.T) {
-	// Create a custom h2 dir with parent and child roles.
-	h2Dir := filepath.Join(t.TempDir(), "h2")
-	if err := os.MkdirAll(h2Dir, 0o755); err != nil {
-		t.Fatalf("create h2 dir: %v", err)
-	}
-	if err := config.WriteMarker(h2Dir); err != nil {
-		t.Fatalf("write marker: %v", err)
-	}
-
-	t.Setenv("H2_DIR", h2Dir)
-	config.ResetResolveCache()
-	t.Cleanup(config.ResetResolveCache)
-
-	rolesDir := filepath.Join(h2Dir, "roles")
-	if err := os.MkdirAll(rolesDir, 0o755); err != nil {
-		t.Fatalf("create roles dir: %v", err)
-	}
-
-	// Parent role uses {{ randomName }}.
-	parentTmpl := `role_name: "{{ .RoleName }}"
-agent_name: "{{ randomName }}"
-agent_harness: claude_code
-instructions_body: "default instructions"
-`
-	if err := os.WriteFile(filepath.Join(rolesDir, "default.yaml.tmpl"), []byte(parentTmpl), 0o644); err != nil {
-		t.Fatalf("write parent role: %v", err)
-	}
-
-	// Child role inherits from default.
-	childTmpl := `inherits: default
-instructions_body: "concierge instructions"
-`
-	if err := os.WriteFile(filepath.Join(rolesDir, "concierge.yaml.tmpl"), []byte(childTmpl), 0o644); err != nil {
-		t.Fatalf("write child role: %v", err)
-	}
-
-	// resolveFullHarness with "concierge" should use default profile.
-	h, err := resolveFullHarness("claude", "concierge", nil)
-	if err != nil {
-		t.Fatalf("resolveFullHarness: %v", err)
-	}
-
-	envVars := h.BuildCommandEnvVars(h2Dir)
-	want := filepath.Join(h2Dir, "claude-config", "default")
-	if got := envVars["CLAUDE_CONFIG_DIR"]; got != want {
-		t.Errorf("CLAUDE_CONFIG_DIR = %q, want %q", got, want)
 	}
 }

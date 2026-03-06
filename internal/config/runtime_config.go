@@ -61,6 +61,10 @@ type RuntimeConfig struct {
 
 	// Timestamps.
 	StartedAt string `json:"started_at"`
+
+	// ResumeSessionID is a transient field (not serialized) set by the daemon
+	// when resuming a previous session. The harness uses it to pass --resume.
+	ResumeSessionID string `json:"-"`
 }
 
 const runtimeConfigFilename = "session.metadata.json"

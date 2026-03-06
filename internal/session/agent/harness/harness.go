@@ -11,11 +11,12 @@ import (
 	"io"
 
 	"h2/internal/activitylog"
+	"h2/internal/config"
 	"h2/internal/session/agent/monitor"
 )
 
-// HarnessFactory creates a Harness from a config and logger.
-type HarnessFactory func(HarnessConfig, *activitylog.Logger) Harness
+// HarnessFactory creates a Harness from a RuntimeConfig and logger.
+type HarnessFactory func(*config.RuntimeConfig, *activitylog.Logger) Harness
 
 type registeredHarness struct {
 	factory        HarnessFactory
@@ -63,9 +64,9 @@ type Harness interface {
 
 	// Config (called before launch).
 	// BuildCommandArgs returns the complete argument list for the child process.
-	// It receives PrependArgs from PrepareForLaunch and any extra args passed
-	// on the command line, and combines them with role-derived flags.
-	BuildCommandArgs(cfg CommandArgsConfig) []string
+	// The harness pulls all config from its stored RuntimeConfig.
+	// prependArgs come from PrepareForLaunch, extraArgs from the command line.
+	BuildCommandArgs(prependArgs, extraArgs []string) []string
 	BuildCommandEnvVars(h2Dir string) map[string]string
 	EnsureConfigDir(h2Dir string) error
 
@@ -73,7 +74,7 @@ type Harness interface {
 	// When dryRun is true, returns what the LaunchConfig would look like
 	// without starting servers or creating resources. Placeholder values
 	// (e.g. "<PORT>") may be used for dynamic fields.
-	PrepareForLaunch(agentName, sessionID string, dryRun bool) (LaunchConfig, error)
+	PrepareForLaunch(dryRun bool) (LaunchConfig, error)
 
 	// Resume support.
 	SupportsResume() bool // whether this harness supports --resume
@@ -86,44 +87,13 @@ type Harness interface {
 	Stop()
 }
 
-// HarnessConfig holds harness-specific configuration extracted from the Role.
-// Passed to Resolve() and individual harness constructors.
-type HarnessConfig struct {
-	HarnessType string // "claude_code", "codex", or "generic"
-	Model       string // model name (shared by claude/codex; empty for generic)
-	ConfigDir   string // harness-specific config dir (resolved by Role)
-	Command     string // executable command (only used by generic)
-}
-
-// CommandArgsConfig holds all inputs needed to build the child process args.
-// Each harness maps role config fields to its own flag conventions, then
-// combines them with PrependArgs (from PrepareForLaunch) and ExtraArgs
-// (from the command line).
-type CommandArgsConfig struct {
-	// PrependArgs are injected by PrepareForLaunch (e.g. Codex OTEL config).
-	PrependArgs []string
-	// ExtraArgs are additional args passed on the command line by the user.
-	ExtraArgs []string
-
-	// Role config fields mapped to CLI flags by each harness.
-	SessionID            string
-	ResumeSessionID      string // if set, resume this session instead of starting fresh
-	Instructions         string
-	SystemPrompt         string
-	Model                string
-	ClaudePermissionMode string   // Claude Code --permission-mode
-	CodexSandboxMode     string   // Codex --sandbox
-	CodexAskForApproval  string   // Codex --ask-for-approval
-	AdditionalDirs       []string // --add-dir (both Claude Code and Codex)
-}
-
 // CombineArgs assembles the complete child process argument list from
-// PrependArgs, ExtraArgs, and harness-specific role args.
-// Order: PrependArgs + ExtraArgs + roleArgs.
-func CombineArgs(cfg CommandArgsConfig, roleArgs []string) []string {
+// prependArgs, extraArgs, and harness-specific roleArgs.
+// Order: prependArgs + extraArgs + roleArgs.
+func CombineArgs(prependArgs, extraArgs, roleArgs []string) []string {
 	var args []string
-	args = append(args, cfg.PrependArgs...)
-	args = append(args, cfg.ExtraArgs...)
+	args = append(args, prependArgs...)
+	args = append(args, extraArgs...)
 	args = append(args, roleArgs...)
 	return args
 }
@@ -170,17 +140,17 @@ func (s *PTYInputSender) SendInterrupt() error {
 	return err
 }
 
-// Resolve maps a HarnessConfig to a concrete Harness implementation.
+// Resolve maps a RuntimeConfig to a concrete Harness implementation.
 // Returns an error for unknown harness types or invalid configs.
-func Resolve(cfg HarnessConfig, log *activitylog.Logger) (Harness, error) {
-	reg, ok := registry[cfg.HarnessType]
+func Resolve(rc *config.RuntimeConfig, log *activitylog.Logger) (Harness, error) {
+	reg, ok := registry[rc.HarnessType]
 	if !ok {
-		return nil, fmt.Errorf("unknown harness type: %q (supported: claude_code, codex, generic)", cfg.HarnessType)
+		return nil, fmt.Errorf("unknown harness type: %q (supported: claude_code, codex, generic)", rc.HarnessType)
 	}
-	if reg.canonicalName == "generic" && cfg.Command == "" {
+	if reg.canonicalName == "generic" && rc.Command == "" {
 		return nil, fmt.Errorf("generic harness requires a command")
 	}
-	return reg.factory(cfg, log), nil
+	return reg.factory(rc, log), nil
 }
 
 // CanonicalName resolves a harness alias to its canonical name.

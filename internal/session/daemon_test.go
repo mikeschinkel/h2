@@ -4,12 +4,11 @@ import (
 	"testing"
 
 	"h2/internal/config"
+	"h2/internal/session/agent/harness"
 )
 
 func TestRuntimeConfig_FieldsStoredOnSession(t *testing.T) {
-	// Verify that RunDaemon populates Session fields from RuntimeConfig.
-	// We can't call RunDaemon directly (it starts sockets/PTY), but we can
-	// verify the field threading by constructing the same way RunDaemon does.
+	// Verify that RuntimeConfig fields are accessible through the session.
 	rc := &config.RuntimeConfig{
 		AgentName:    "test-agent",
 		SessionID:    "test-uuid",
@@ -20,12 +19,15 @@ func TestRuntimeConfig_FieldsStoredOnSession(t *testing.T) {
 		StartedAt:    "2024-01-01T00:00:00Z",
 	}
 
-	s := New(rc.AgentName, rc.Command, rc.Args)
-	s.SessionID = rc.SessionID
-	s.Instructions = rc.Instructions
+	s := NewFromConfig(rc)
+	h, err := harness.Resolve(rc, nil)
+	if err != nil {
+		t.Fatalf("resolve harness: %v", err)
+	}
+	s.harness = h
 
-	if s.Instructions != "You are a test agent.\nDo test things." {
-		t.Fatalf("Instructions not stored on session: got %q", s.Instructions)
+	if s.RC.Instructions != "You are a test agent.\nDo test things." {
+		t.Fatalf("Instructions not stored on RC: got %q", s.RC.Instructions)
 	}
 
 	// Verify childArgs includes --append-system-prompt.
@@ -54,8 +56,12 @@ func TestRuntimeConfig_EmptyInstructionsNotInChildArgs(t *testing.T) {
 		StartedAt:   "2024-01-01T00:00:00Z",
 	}
 
-	s := New(rc.AgentName, rc.Command, rc.Args)
-	s.SessionID = rc.SessionID
+	s := NewFromConfig(rc)
+	h, err := harness.Resolve(rc, nil)
+	if err != nil {
+		t.Fatalf("resolve harness: %v", err)
+	}
+	s.harness = h
 
 	// Verify childArgs does NOT include --append-system-prompt.
 	args := s.childArgs()
@@ -80,21 +86,21 @@ func TestRuntimeConfig_AllFieldsStoredOnSession(t *testing.T) {
 		StartedAt:            "2024-01-01T00:00:00Z",
 	}
 
-	s := New(rc.AgentName, rc.Command, rc.Args)
-	s.SessionID = rc.SessionID
-	s.Instructions = rc.Instructions
-	s.SystemPrompt = rc.SystemPrompt
-	s.Model = rc.Model
-	s.ClaudePermissionMode = rc.ClaudePermissionMode
+	s := NewFromConfig(rc)
+	h, err := harness.Resolve(rc, nil)
+	if err != nil {
+		t.Fatalf("resolve harness: %v", err)
+	}
+	s.harness = h
 
-	if s.SystemPrompt != "Custom system prompt" {
-		t.Fatalf("SystemPrompt not stored: got %q", s.SystemPrompt)
+	if s.RC.SystemPrompt != "Custom system prompt" {
+		t.Fatalf("SystemPrompt not stored: got %q", s.RC.SystemPrompt)
 	}
-	if s.Model != "claude-opus-4-6" {
-		t.Fatalf("Model not stored: got %q", s.Model)
+	if s.RC.Model != "claude-opus-4-6" {
+		t.Fatalf("Model not stored: got %q", s.RC.Model)
 	}
-	if s.ClaudePermissionMode != "plan" {
-		t.Fatalf("ClaudePermissionMode not stored: got %q", s.ClaudePermissionMode)
+	if s.RC.ClaudePermissionMode != "plan" {
+		t.Fatalf("ClaudePermissionMode not stored: got %q", s.RC.ClaudePermissionMode)
 	}
 
 	// Verify all fields appear in childArgs.
@@ -134,16 +140,12 @@ func TestRuntimeConfig_CodexFields(t *testing.T) {
 		StartedAt:           "2024-01-01T00:00:00Z",
 	}
 
-	s := New(rc.AgentName, rc.Command, rc.Args)
-	s.SessionID = rc.SessionID
-	s.Instructions = rc.Instructions
-	s.CodexAskForApproval = rc.CodexAskForApproval
-	s.CodexSandboxMode = rc.CodexSandboxMode
+	s := NewFromConfig(rc)
 
-	if s.CodexAskForApproval != "never" {
-		t.Fatalf("CodexAskForApproval not stored: got %q", s.CodexAskForApproval)
+	if s.RC.CodexAskForApproval != "never" {
+		t.Fatalf("CodexAskForApproval not stored: got %q", s.RC.CodexAskForApproval)
 	}
-	if s.CodexSandboxMode != "danger-full-access" {
-		t.Fatalf("CodexSandboxMode not stored: got %q", s.CodexSandboxMode)
+	if s.RC.CodexSandboxMode != "danger-full-access" {
+		t.Fatalf("CodexSandboxMode not stored: got %q", s.RC.CodexSandboxMode)
 	}
 }

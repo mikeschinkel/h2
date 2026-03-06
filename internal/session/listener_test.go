@@ -4,12 +4,20 @@ import (
 	"net"
 	"testing"
 
+	"h2/internal/config"
 	"h2/internal/session/message"
 	"h2/internal/session/virtualterminal"
 )
 
 func TestHandleStop_SetsQuitAndRespondsOK(t *testing.T) {
-	s := New("test", "true", nil)
+	s := NewFromConfig(&config.RuntimeConfig{
+		AgentName:   "test",
+		Command:     "true",
+		HarnessType: "generic",
+		SessionID:   "test-uuid",
+		CWD:         "/tmp",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	})
 	s.VT = &virtualterminal.VT{} // minimal VT, no child process
 
 	d := &Daemon{Session: s}

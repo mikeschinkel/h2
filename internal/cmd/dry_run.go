@@ -39,7 +39,9 @@ func resolveAgentConfig(name string, role *config.Role, pod string, overrides []
 		name = dryRunAgentNamePlaceholder
 	}
 
-	h, err := harness.Resolve(roleHarnessConfig(role), nil)
+	// Build a minimal RuntimeConfig for harness resolution.
+	minRC := buildRoleRuntimeConfig(role)
+	h, err := harness.Resolve(minRC, nil)
 	if err != nil {
 		return nil, fmt.Errorf("resolve harness: %w", err)
 	}
@@ -103,7 +105,7 @@ func resolveAgentConfig(name string, role *config.Role, pod string, overrides []
 	// Capture launch config from PrepareForLaunch in dry-run mode (no side effects).
 	// This includes harness-provided prepend args and launch-time env vars.
 	var prependArgs []string
-	if launchCfg, err := h.PrepareForLaunch(name, "<generated-uuid>", true); err == nil {
+	if launchCfg, err := h.PrepareForLaunch(true); err == nil {
 		prependArgs = launchCfg.PrependArgs
 		for k, v := range launchCfg.Env {
 			envVars[k] = v
@@ -116,26 +118,39 @@ func resolveAgentConfig(name string, role *config.Role, pod string, overrides []
 		return nil, fmt.Errorf("resolve additional_dirs: %w", err)
 	}
 
-	// Build the complete child args via BuildCommandArgs.
-	roleCfg := roleHarnessConfig(role)
-	childArgs := h.BuildCommandArgs(harness.CommandArgsConfig{
-		PrependArgs:          prependArgs,
-		ExtraArgs:            extraArgs,
-		SessionID:            "<generated-uuid>",
-		Instructions:         role.GetInstructions(),
-		SystemPrompt:         role.SystemPrompt,
-		Model:                roleCfg.Model,
-		ClaudePermissionMode: role.ClaudePermissionMode,
-		CodexSandboxMode:     role.CodexSandboxMode,
-		CodexAskForApproval:  role.CodexAskForApproval,
-		AdditionalDirs:       additionalDirs,
-	})
+	// Build a full RuntimeConfig for dry-run arg generation.
+	// We need a RuntimeConfig with all fields so the harness can pull from it.
+	dryRunRC := &config.RuntimeConfig{
+		AgentName:               name,
+		SessionID:               "<generated-uuid>",
+		HarnessType:             minRC.HarnessType,
+		HarnessConfigPathPrefix: minRC.HarnessConfigPathPrefix,
+		Profile:                 role.GetProfile(),
+		Command:                 h.Command(),
+		Args:                    extraArgs,
+		Model:                   minRC.Model,
+		CWD:                     agentCWD,
+		Instructions:            role.GetInstructions(),
+		SystemPrompt:            role.SystemPrompt,
+		ClaudePermissionMode:    role.ClaudePermissionMode,
+		CodexSandboxMode:        role.CodexSandboxMode,
+		CodexAskForApproval:     role.CodexAskForApproval,
+		AdditionalDirs:          additionalDirs,
+		StartedAt:               "dry-run",
+	}
+
+	// Re-resolve harness with full config so BuildCommandArgs has access to all fields.
+	dryRunH, err := harness.Resolve(dryRunRC, nil)
+	if err != nil {
+		return nil, fmt.Errorf("resolve harness for args: %w", err)
+	}
+	childArgs := dryRunH.BuildCommandArgs(prependArgs, extraArgs)
 
 	return &ResolvedAgentConfig{
 		Name:       name,
 		Role:       role,
 		Command:    h.Command(),
-		Model:      roleCfg.Model,
+		Model:      minRC.Model,
 		SessionDir: sessionDir,
 		WorkingDir: agentCWD,
 		IsWorktree: isWorktree,

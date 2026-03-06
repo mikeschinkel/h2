@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"h2/internal/activitylog"
+	"h2/internal/config"
 	"h2/internal/session/agent/harness"
 	"h2/internal/session/agent/monitor"
 	"h2/internal/session/agent/shared/ptycollector"
@@ -18,28 +19,28 @@ import (
 func init() {
 	harness.Register(harness.HarnessSpec{
 		Names: []string{"generic"},
-		Factory: func(cfg harness.HarnessConfig, log *activitylog.Logger) harness.Harness {
-			return New(cfg)
+		Factory: func(rc *config.RuntimeConfig, log *activitylog.Logger) harness.Harness {
+			return New(rc)
 		},
 	})
 }
 
 // GenericHarness implements harness.Harness for arbitrary shell commands.
 type GenericHarness struct {
-	command   string
+	rc        *config.RuntimeConfig
 	collector *ptycollector.Collector // created in PrepareForLaunch()
 }
 
 // New creates a GenericHarness for the given command.
-func New(cfg harness.HarnessConfig) *GenericHarness {
-	return &GenericHarness{command: cfg.Command}
+func New(rc *config.RuntimeConfig) *GenericHarness {
+	return &GenericHarness{rc: rc}
 }
 
 // --- Identity ---
 
 func (g *GenericHarness) Name() string           { return "generic" }
-func (g *GenericHarness) Command() string        { return g.command }
-func (g *GenericHarness) DisplayCommand() string { return g.command }
+func (g *GenericHarness) Command() string        { return g.rc.Command }
+func (g *GenericHarness) DisplayCommand() string { return g.rc.Command }
 
 // --- Resume ---
 
@@ -47,8 +48,8 @@ func (g *GenericHarness) SupportsResume() bool { return false }
 
 // --- Config (no-ops for generic) ---
 
-func (g *GenericHarness) BuildCommandArgs(cfg harness.CommandArgsConfig) []string {
-	return harness.CombineArgs(cfg, nil)
+func (g *GenericHarness) BuildCommandArgs(prependArgs, extraArgs []string) []string {
+	return harness.CombineArgs(prependArgs, extraArgs, nil)
 }
 func (g *GenericHarness) BuildCommandEnvVars(h2Dir string) map[string]string { return nil }
 func (g *GenericHarness) EnsureConfigDir(h2Dir string) error                 { return nil }
@@ -59,8 +60,8 @@ func (g *GenericHarness) EnsureConfigDir(h2Dir string) error                 { r
 // LaunchConfig — generic agents don't need OTEL servers or special env vars.
 // The collector is created here (not in Start) so that HandleOutput() works
 // immediately after the child process starts without a race.
-func (g *GenericHarness) PrepareForLaunch(agentName, sessionID string, dryRun bool) (harness.LaunchConfig, error) {
-	if g.command == "" {
+func (g *GenericHarness) PrepareForLaunch(dryRun bool) (harness.LaunchConfig, error) {
+	if g.rc.Command == "" {
 		return harness.LaunchConfig{}, fmt.Errorf("generic harness: command is empty")
 	}
 	g.collector = ptycollector.New(monitor.IdleThreshold)

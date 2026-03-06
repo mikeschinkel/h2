@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"h2/internal/config"
+	"h2/internal/session/agent/harness"
 	"h2/internal/session/agent/monitor"
 	"h2/internal/session/message"
 )
@@ -12,8 +14,18 @@ import (
 // newTestSession creates a minimal Session with the output collector bridge
 // started, ready for heartbeat testing.
 func newHeartbeatTestSession() *Session {
-	s := New("test", "generic-test", nil)
-	s.harness.PrepareForLaunch("test", "", false) //nolint:errcheck // test setup
+	rc := &config.RuntimeConfig{
+		AgentName:   "test",
+		Command:     "generic-test",
+		HarnessType: "generic",
+		SessionID:   "test-uuid",
+		CWD:         "/tmp",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	}
+	s := NewFromConfig(rc)
+	h, _ := harness.Resolve(rc, nil)
+	s.harness = h
+	s.harness.PrepareForLaunch(false) //nolint:errcheck // test setup
 	s.startAgentPipeline(context.Background())
 	return s
 }

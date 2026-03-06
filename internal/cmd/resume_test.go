@@ -266,22 +266,24 @@ func TestRunResume_ForksDaemonWithResumeFlag(t *testing.T) {
 }
 
 func TestClaudeHarness_BuildCommandArgs_Resume(t *testing.T) {
-	cfg := harness.CommandArgsConfig{
-		ResumeSessionID: "abc-123",
+	rc := &config.RuntimeConfig{
+		AgentName:       "test",
 		SessionID:       "new-uuid",
+		HarnessType:     "claude_code",
+		Command:         "claude",
 		Model:           "opus",
 		Instructions:    "Be helpful",
+		ResumeSessionID: "abc-123",
+		CWD:             "/tmp",
+		StartedAt:       "2024-01-01T00:00:00Z",
 	}
 
-	h, err := harness.Resolve(harness.HarnessConfig{
-		HarnessType: "claude_code",
-		Command:     "claude",
-	}, nil)
+	h, err := harness.Resolve(rc, nil)
 	if err != nil {
 		t.Fatalf("resolve harness: %v", err)
 	}
 
-	args := h.BuildCommandArgs(cfg)
+	args := h.BuildCommandArgs(nil, nil)
 
 	// Should contain --resume with old session ID.
 	foundResume := false
@@ -309,21 +311,21 @@ func TestClaudeHarness_BuildCommandArgs_Resume(t *testing.T) {
 }
 
 func TestClaudeHarness_SupportsResume(t *testing.T) {
-	h, _ := harness.Resolve(harness.HarnessConfig{HarnessType: "claude_code", Command: "claude"}, nil)
+	h, _ := harness.Resolve(&config.RuntimeConfig{HarnessType: "claude_code", Command: "claude"}, nil)
 	if !h.SupportsResume() {
 		t.Error("Claude Code should support resume")
 	}
 }
 
 func TestCodexHarness_SupportsResume(t *testing.T) {
-	h, _ := harness.Resolve(harness.HarnessConfig{HarnessType: "codex", Command: "codex"}, nil)
+	h, _ := harness.Resolve(&config.RuntimeConfig{HarnessType: "codex", Command: "codex"}, nil)
 	if h.SupportsResume() {
 		t.Error("Codex should not support resume")
 	}
 }
 
 func TestGenericHarness_SupportsResume(t *testing.T) {
-	h, _ := harness.Resolve(harness.HarnessConfig{HarnessType: "generic", Command: "vim"}, nil)
+	h, _ := harness.Resolve(&config.RuntimeConfig{HarnessType: "generic", Command: "vim"}, nil)
 	if h.SupportsResume() {
 		t.Error("Generic should not support resume")
 	}

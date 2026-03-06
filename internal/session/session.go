@@ -26,7 +26,6 @@ import (
 	"h2/internal/session/client"
 	"h2/internal/session/message"
 	"h2/internal/session/virtualterminal"
-	"h2/internal/tmpl"
 
 	// Register harness implementations via init().
 	_ "h2/internal/session/agent/harness/claude"
@@ -37,34 +36,18 @@ import (
 // Session manages the message queue, delivery loop, observable state,
 // child process lifecycle, and client connections for an h2 session.
 type Session struct {
-	Name                 string
-	Command              string
-	Args                 []string
-	SessionID            string   // Claude Code session ID (UUID), set for claude commands
-	ResumeSessionID      string   // if set, resume this previous session instead of starting fresh
-	RoleName             string   // Role name, if launched with --role
-	SessionDir           string   // Session directory path (~/.h2/sessions/<name>/)
-	WorkingDir           string   // Working directory for the child process/session
-	Instructions         string   // Role instructions, passed via --append-system-prompt
-	SystemPrompt         string   // Replaces default system prompt, passed via --system-prompt
-	Model                string   // Model selection, passed via --model
-	HarnessType          string   // Resolved harness type (when provided by launcher)
-	HarnessConfigDir     string   // Resolved harness config dir (when provided by launcher)
-	ClaudePermissionMode string   // Claude Code --permission-mode
-	CodexSandboxMode     string   // Codex --sandbox
-	CodexAskForApproval  string   // Codex --ask-for-approval
-	AdditionalDirs       []string // extra dirs passed via --add-dir
-	Queue                *message.MessageQueue
-	AgentName            string
-	harness              harness.Harness
-	monitor              *monitor.AgentMonitor
-	agentCancel          context.CancelFunc
-	activityLog          *activitylog.Logger
-	VT                   *virtualterminal.VT
-	Client               *client.Client // primary/interactive client (nil in daemon-only)
-	Clients              []*client.Client
-	clientsMu            sync.Mutex
-	PassthroughOwner     *client.Client // which client owns passthrough mode (nil = none)
+	RC               *config.RuntimeConfig // fully resolved session configuration
+	SessionDir       string                // Session directory path (~/.h2/sessions/<name>/)
+	Queue            *message.MessageQueue
+	harness          harness.Harness
+	monitor          *monitor.AgentMonitor
+	agentCancel      context.CancelFunc
+	activityLog      *activitylog.Logger
+	VT               *virtualterminal.VT
+	Client           *client.Client // primary/interactive client (nil in daemon-only)
+	Clients          []*client.Client
+	clientsMu        sync.Mutex
+	PassthroughOwner *client.Client // which client owns passthrough mode (nil = none)
 
 	// prependArgs holds CLI args from the adapter's launch config
 	// (e.g. --session-id for Claude Code). Set by setupAgent().
@@ -76,7 +59,7 @@ type Session struct {
 	// ExtraEnv holds additional environment variables to pass to the child process.
 	ExtraEnv map[string]string
 
-	// Heartbeat nudge configuration.
+	// Heartbeat nudge configuration (parsed from RC at daemon startup).
 	HeartbeatIdleTimeout time.Duration
 	HeartbeatMessage     string
 	HeartbeatCondition   string
@@ -98,47 +81,20 @@ type Session struct {
 	OnDeliver func()
 }
 
-// New creates a new Session with the given name and command.
-func New(name string, command string, args []string) *Session {
-	h := resolveMinimalHarness(command)
+// Name returns the agent name from RuntimeConfig.
+func (s *Session) Name() string { return s.RC.AgentName }
+
+// NewFromConfig creates a new Session from a fully resolved RuntimeConfig.
+func NewFromConfig(rc *config.RuntimeConfig) *Session {
 	return &Session{
-		Name:       name,
-		Command:    command,
-		Args:       args,
-		AgentName:  name,
+		RC:         rc,
 		Queue:      message.NewMessageQueue(),
-		harness:    h,
 		monitor:    monitor.New(),
 		exitNotify: make(chan struct{}, 1),
 		stopCh:     make(chan struct{}),
 		relaunchCh: make(chan struct{}, 1),
 		quitCh:     make(chan struct{}, 1),
 	}
-}
-
-// resolveMinimalHarness maps a command name to a harness with minimal config.
-// Used by New() before full config (logger, configDir) is available.
-// setupAgent() replaces this with a properly configured harness.
-func resolveMinimalHarness(command string) harness.Harness {
-	harnessType := "generic"
-	switch filepath.Base(command) {
-	case "claude":
-		harnessType = "claude_code"
-	case "codex":
-		harnessType = "codex"
-	}
-	h, err := harness.Resolve(harness.HarnessConfig{
-		HarnessType: harnessType,
-		Command:     command,
-	}, nil)
-	if err != nil {
-		// Fallback to generic if specific harness not available.
-		h, _ = harness.Resolve(harness.HarnessConfig{
-			HarnessType: "generic",
-			Command:     command,
-		}, nil)
-	}
-	return h
 }
 
 // PtyWriter returns a writer that writes to the child PTY under VT.Mu.
@@ -177,7 +133,7 @@ func (s *Session) initVT(rows, cols int) {
 }
 
 // setupAgent configures the agent harness and launch config. Sets up
-// activity logger, re-resolves the harness with proper config, calls
+// activity logger, resolves the harness from RuntimeConfig, calls
 // PrepareForLaunch to get env vars and CLI args, and merges them into
 // the session's ExtraEnv and prependArgs.
 func (s *Session) setupAgent() error {
@@ -185,26 +141,21 @@ func (s *Session) setupAgent() error {
 	logDir := filepath.Join(config.ConfigDir(), "logs")
 	os.MkdirAll(logDir, 0o755)
 	logPath := filepath.Join(logDir, "session-activity.jsonl")
-	actLog := activitylog.New(true, logPath, s.Name, s.SessionID)
+	actLog := activitylog.New(true, logPath, s.RC.AgentName, s.RC.SessionID)
 	s.activityLog = actLog
 
-	// Resolve harness with launcher-provided config.
-	if s.HarnessType == "" {
+	// Resolve harness from RuntimeConfig.
+	if s.RC.HarnessType == "" {
 		return fmt.Errorf("resolve harness: missing harness type from launcher")
 	}
-	h, err := harness.Resolve(harness.HarnessConfig{
-		HarnessType: s.HarnessType,
-		Command:     s.Command,
-		Model:       s.Model,
-		ConfigDir:   s.HarnessConfigDir,
-	}, actLog)
+	h, err := harness.Resolve(s.RC, actLog)
 	if err != nil {
 		return fmt.Errorf("resolve harness: %w", err)
 	}
 	s.harness = h
 
 	// Prepare harness and get launch config (env vars, prepend args).
-	launchCfg, err := s.harness.PrepareForLaunch(s.Name, s.SessionID, false)
+	launchCfg, err := s.harness.PrepareForLaunch(false)
 	if err != nil {
 		return fmt.Errorf("prepare agent for launch: %w", err)
 	}
@@ -229,79 +180,12 @@ func (s *Session) setupAgent() error {
 	return nil
 }
 
-// resolveFullHarness creates a properly-configured harness with logger and
-// config resolved from the role. Called from setupAgent() when all config
-// is available.
-func resolveFullHarness(command, roleName string, log *activitylog.Logger) (harness.Harness, error) {
-	// If we have a role name, load the role to get proper config
-	// (claude_config_dir, harness_type, model, etc.).
-	if roleName != "" {
-		rootDir, _ := config.RootDir()
-		ctx := &tmpl.Context{
-			RoleName:  roleName,
-			H2Dir:     config.ConfigDir(),
-			H2RootDir: rootDir,
-		}
-		// Use stub name functions since the daemon doesn't need real
-		// randomName/autoIncrement — it already has its agent name.
-		role, err := config.LoadRoleRenderedWithFuncs(roleName, ctx, config.NameStubFuncs)
-		if err != nil {
-			return nil, fmt.Errorf("load role %q: %w", roleName, err)
-		}
-		ht := harness.CanonicalName(role.GetHarnessType())
-		command := role.GetAgentType()
-		if command == "" {
-			command = harness.DefaultCommand(ht)
-		}
-		cfg := harness.HarnessConfig{
-			HarnessType: ht,
-			Command:     command,
-			Model:       role.GetModel(),
-		}
-		switch ht {
-		case "claude_code":
-			cfg.ConfigDir = role.GetClaudeConfigDir()
-		case "codex":
-			cfg.ConfigDir = role.GetCodexConfigDir()
-		}
-		return harness.Resolve(cfg, log)
-	}
-
-	// No role specified — resolve from command name alone.
-	// Always use "default" profile — role name != profile.
-	harnessType := "generic"
-	var configDir string
-	switch filepath.Base(command) {
-	case "claude":
-		harnessType = "claude_code"
-		configDir = config.DefaultClaudeConfigDir()
-	case "codex":
-		harnessType = "codex"
-	}
-	return harness.Resolve(harness.HarnessConfig{
-		HarnessType: harnessType,
-		Command:     command,
-		ConfigDir:   configDir,
-	}, log)
-}
-
 // childArgs returns the command args, prepending any adapter-supplied args
 // (e.g. --session-id for Claude Code) and appending agent-type-specific
-// role flags via BuildCommandArgs.
+// role flags via BuildCommandArgs. The harness pulls all config from its
+// stored RuntimeConfig.
 func (s *Session) childArgs() []string {
-	return s.harness.BuildCommandArgs(harness.CommandArgsConfig{
-		PrependArgs:          s.prependArgs,
-		ExtraArgs:            s.Args,
-		SessionID:            s.SessionID,
-		ResumeSessionID:      s.ResumeSessionID,
-		Instructions:         s.Instructions,
-		SystemPrompt:         s.SystemPrompt,
-		Model:                s.Model,
-		ClaudePermissionMode: s.ClaudePermissionMode,
-		CodexSandboxMode:     s.CodexSandboxMode,
-		CodexAskForApproval:  s.CodexAskForApproval,
-		AdditionalDirs:       s.AdditionalDirs,
-	})
+	return s.harness.BuildCommandArgs(s.prependArgs, s.RC.Args)
 }
 
 // NewClient creates a new Client with all session callbacks wired.
@@ -309,7 +193,7 @@ func (s *Session) NewClient() *client.Client {
 	cl := &client.Client{
 		VT:        s.VT,
 		Output:    io.Discard, // overridden by caller (attach sets frameWriter, interactive sets os.Stdout)
-		AgentName: s.Name,
+		AgentName: s.Name(),
 	}
 	cl.InitClient()
 
@@ -376,8 +260,8 @@ func (s *Session) NewClient() *client.Client {
 		return st.String(), sub.String(), virtualterminal.FormatIdleDuration(s.StateDuration())
 	}
 	cl.WorkingDir = func() string {
-		if s.WorkingDir != "" {
-			return s.WorkingDir
+		if s.RC.CWD != "" {
+			return s.RC.CWD
 		}
 		cwd, err := os.Getwd()
 		if err != nil {
@@ -514,9 +398,9 @@ func (s *Session) RunDaemon() error {
 	if err := s.setupAgent(); err != nil {
 		return err
 	}
-	s.ExtraEnv["H2_ACTOR"] = s.Name
-	if s.RoleName != "" {
-		s.ExtraEnv["H2_ROLE"] = s.RoleName
+	s.ExtraEnv["H2_ACTOR"] = s.Name()
+	if s.RC.RoleName != "" {
+		s.ExtraEnv["H2_ROLE"] = s.RC.RoleName
 	}
 	if s.SessionDir != "" {
 		s.ExtraEnv["H2_SESSION_DIR"] = s.SessionDir
@@ -527,7 +411,7 @@ func (s *Session) RunDaemon() error {
 	}
 
 	// Start child in a PTY.
-	if err := s.VT.StartPTY(s.Command, s.childArgs(), s.VT.ChildRows, s.VT.Cols, s.ExtraEnv); err != nil {
+	if err := s.VT.StartPTY(s.RC.Command, s.childArgs(), s.VT.ChildRows, s.VT.Cols, s.ExtraEnv); err != nil {
 		return err
 	}
 	// Don't forward requests to stdout in daemon mode - there's no terminal.
@@ -547,7 +431,7 @@ func (s *Session) RunDaemon() error {
 			Condition:   s.HeartbeatCondition,
 			Session:     s,
 			Queue:       s.Queue,
-			AgentName:   s.AgentName,
+			AgentName:   s.RC.AgentName,
 			Stop:        s.stopCh,
 		})
 	}
@@ -623,10 +507,10 @@ func (s *Session) RunInteractive() error {
 	if err := s.setupAgent(); err != nil {
 		return err
 	}
-	s.ExtraEnv["H2_ACTOR"] = s.Name
+	s.ExtraEnv["H2_ACTOR"] = s.Name()
 
 	// Start child in a PTY.
-	if err := s.VT.StartPTY(s.Command, s.childArgs(), s.VT.ChildRows, cols, s.ExtraEnv); err != nil {
+	if err := s.VT.StartPTY(s.RC.Command, s.childArgs(), s.VT.ChildRows, cols, s.ExtraEnv); err != nil {
 		return err
 	}
 	s.VT.Vt.ForwardRequests = os.Stdout
@@ -663,12 +547,12 @@ func (s *Session) lifecycleLoop(stopStatus chan struct{}, interactive bool) erro
 		if err != nil {
 			var exitErr *exec.ExitError
 			if errors.As(err, &exitErr) {
-				log.Printf("child process exited (code %d): %s [command=%s]", exitErr.ExitCode(), exitErr, s.Command)
+				log.Printf("child process exited (code %d): %s [command=%s]", exitErr.ExitCode(), exitErr, s.RC.Command)
 			} else {
-				log.Printf("child process exited with error: %v [command=%s]", err, s.Command)
+				log.Printf("child process exited with error: %v [command=%s]", err, s.RC.Command)
 			}
 		} else {
-			log.Printf("child process exited (code 0) [command=%s]", s.Command)
+			log.Printf("child process exited (code 0) [command=%s]", s.RC.Command)
 		}
 
 		// If the user explicitly chose Quit, exit immediately.
@@ -696,7 +580,7 @@ func (s *Session) lifecycleLoop(stopStatus chan struct{}, interactive bool) erro
 		select {
 		case <-s.relaunchCh:
 			s.VT.Ptm.Close()
-			if err := s.VT.StartPTY(s.Command, s.childArgs(), s.VT.ChildRows, s.VT.Cols, s.ExtraEnv); err != nil {
+			if err := s.VT.StartPTY(s.RC.Command, s.childArgs(), s.VT.ChildRows, s.VT.Cols, s.ExtraEnv); err != nil {
 				close(stopStatus)
 				s.Stop()
 				return err
@@ -855,7 +739,7 @@ func (s *Session) SubmitInput(text string, priority message.Priority) {
 func (s *Session) StartServices() {
 	message.RunDelivery(message.DeliveryConfig{
 		Queue:     s.Queue,
-		AgentName: s.AgentName,
+		AgentName: s.RC.AgentName,
 		PtyWriter: s.PtyWriter(),
 		IsIdle: func() bool {
 			st, _ := s.State()

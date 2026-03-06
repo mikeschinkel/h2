@@ -20,8 +20,8 @@ import (
 func init() {
 	harness.Register(harness.HarnessSpec{
 		Names: []string{"codex"},
-		Factory: func(cfg harness.HarnessConfig, log *activitylog.Logger) harness.Harness {
-			return New(cfg, log)
+		Factory: func(rc *config.RuntimeConfig, log *activitylog.Logger) harness.Harness {
+			return New(rc, log)
 		},
 		DefaultCommand: "codex",
 	})
@@ -29,8 +29,7 @@ func init() {
 
 // CodexHarness implements harness.Harness for OpenAI Codex CLI.
 type CodexHarness struct {
-	configDir   string
-	model       string
+	rc          *config.RuntimeConfig
 	activityLog *activitylog.Logger
 
 	otelServer   *otelserver.OtelServer
@@ -42,14 +41,13 @@ type CodexHarness struct {
 }
 
 // New creates a CodexHarness.
-func New(cfg harness.HarnessConfig, log *activitylog.Logger) *CodexHarness {
+func New(rc *config.RuntimeConfig, log *activitylog.Logger) *CodexHarness {
 	if log == nil {
 		log = activitylog.Nop()
 	}
 	ch := make(chan monitor.AgentEvent, 256)
 	return &CodexHarness{
-		configDir:    cfg.ConfigDir,
-		model:        cfg.Model,
+		rc:           rc,
 		activityLog:  log,
 		internalCh:   ch,
 		eventHandler: NewEventHandler(ch),
@@ -68,50 +66,50 @@ func (h *CodexHarness) SupportsResume() bool { return false }
 
 // --- Config (called before launch) ---
 
-// BuildCommandArgs maps role config to Codex CLI flags, combined with
-// PrependArgs and ExtraArgs into the complete child process argument list.
-// SystemPrompt, AllowedTools, and DisallowedTools have no Codex equivalent
-// and are silently ignored.
-func (h *CodexHarness) BuildCommandArgs(cfg harness.CommandArgsConfig) []string {
+// BuildCommandArgs maps RuntimeConfig to Codex CLI flags, combined with
+// prependArgs and extraArgs into the complete child process argument list.
+func (h *CodexHarness) BuildCommandArgs(prependArgs, extraArgs []string) []string {
 	var roleArgs []string
-	if cfg.Instructions != "" {
+	rc := h.rc
+	if rc.Instructions != "" {
 		// JSON-encode the value so newlines become \n and quotes are escaped.
 		// Codex -c parses values as JSON when possible.
-		encoded, _ := json.Marshal(cfg.Instructions)
+		encoded, _ := json.Marshal(rc.Instructions)
 		roleArgs = append(roleArgs, "-c", "instructions="+string(encoded))
 	}
-	if cfg.Model != "" {
-		roleArgs = append(roleArgs, "--model", cfg.Model)
+	if rc.Model != "" {
+		roleArgs = append(roleArgs, "--model", rc.Model)
 	}
-	if cfg.CodexAskForApproval != "" {
-		roleArgs = append(roleArgs, "--ask-for-approval", cfg.CodexAskForApproval)
+	if rc.CodexAskForApproval != "" {
+		roleArgs = append(roleArgs, "--ask-for-approval", rc.CodexAskForApproval)
 	}
-	if cfg.CodexSandboxMode != "" {
-		roleArgs = append(roleArgs, "--sandbox", cfg.CodexSandboxMode)
+	if rc.CodexSandboxMode != "" {
+		roleArgs = append(roleArgs, "--sandbox", rc.CodexSandboxMode)
 	}
-	for _, dir := range cfg.AdditionalDirs {
+	for _, dir := range rc.AdditionalDirs {
 		roleArgs = append(roleArgs, "--add-dir", dir)
 	}
-	// When nothing is set, let Codex use its own defaults.
-	return harness.CombineArgs(cfg, roleArgs)
+	return harness.CombineArgs(prependArgs, extraArgs, roleArgs)
 }
 
-// BuildCommandEnvVars returns nil — Codex doesn't need special env vars.
+// BuildCommandEnvVars returns CODEX_HOME env var if configured.
 func (h *CodexHarness) BuildCommandEnvVars(h2Dir string) map[string]string {
-	if h.configDir == "" {
+	configDir := h.rc.HarnessConfigDir()
+	if configDir == "" {
 		return nil
 	}
 	return map[string]string{
-		"CODEX_HOME": h.configDir,
+		"CODEX_HOME": configDir,
 	}
 }
 
 // EnsureConfigDir creates the configured CODEX_HOME directory if needed.
 func (h *CodexHarness) EnsureConfigDir(h2Dir string) error {
-	if h.configDir == "" {
+	configDir := h.rc.HarnessConfigDir()
+	if configDir == "" {
 		return nil
 	}
-	if err := os.MkdirAll(h.configDir, 0o755); err != nil {
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		return fmt.Errorf("create codex config dir: %w", err)
 	}
 	return nil
@@ -122,7 +120,7 @@ func (h *CodexHarness) EnsureConfigDir(h2Dir string) error {
 // PrepareForLaunch creates the OTEL server and returns the -c flag
 // that configures Codex's log exporter to send to h2's collector.
 // When dryRun is true, returns placeholder args without starting a server.
-func (h *CodexHarness) PrepareForLaunch(agentName, sessionID string, dryRun bool) (harness.LaunchConfig, error) {
+func (h *CodexHarness) PrepareForLaunch(dryRun bool) (harness.LaunchConfig, error) {
 	if dryRun {
 		return harness.LaunchConfig{
 			PrependArgs: []string{
@@ -131,6 +129,8 @@ func (h *CodexHarness) PrepareForLaunch(agentName, sessionID string, dryRun bool
 		}, nil
 	}
 
+	agentName := h.rc.AgentName
+	sessionID := h.rc.SessionID
 	debugPath := resolveDebugPath(agentName, sessionID)
 	h.eventHandler.ConfigureDebug(debugPath)
 

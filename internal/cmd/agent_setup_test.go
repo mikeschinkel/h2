@@ -16,7 +16,7 @@ func TestValidateHarnessConfigDirExists_MissingProfileDerivedDir(t *testing.T) {
 		Profile:      "alt",
 	}
 
-	err := validateHarnessConfigDirExists(role, roleHarnessConfig(role))
+	err := validateHarnessConfigDirExists(role, buildRoleRuntimeConfig(role))
 	if err == nil {
 		t.Fatal("expected error for missing profile-derived config dir")
 	}
@@ -38,7 +38,7 @@ func TestValidateHarnessConfigDirExists_ExistingProfileDerivedDir(t *testing.T) 
 	if err := os.MkdirAll(filepath.Join(h2Dir, "codex-config", "alt1"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	err := validateHarnessConfigDirExists(role, roleHarnessConfig(role))
+	err := validateHarnessConfigDirExists(role, buildRoleRuntimeConfig(role))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

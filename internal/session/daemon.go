@@ -49,22 +49,11 @@ type TerminalHints struct {
 // used by the launcher (not reconstructed from agent name) to ensure
 // consistency across symlinks, worktrees, and custom paths.
 func RunDaemon(sessionDir string, rc *config.RuntimeConfig, resume bool) error {
-	s := New(rc.AgentName, rc.Command, rc.Args)
-	s.SessionID = rc.SessionID
 	if resume {
-		s.ResumeSessionID = rc.HarnessSessionID
+		rc.ResumeSessionID = rc.HarnessSessionID
 	}
-	s.RoleName = rc.RoleName
-	s.Instructions = rc.Instructions
-	s.SystemPrompt = rc.SystemPrompt
-	s.Model = rc.Model
-	s.HarnessType = rc.HarnessType
-	s.HarnessConfigDir = rc.HarnessConfigDir()
-	s.ClaudePermissionMode = rc.ClaudePermissionMode
-	s.CodexSandboxMode = rc.CodexSandboxMode
-	s.CodexAskForApproval = rc.CodexAskForApproval
-	s.AdditionalDirs = rc.AdditionalDirs
-	s.WorkingDir = rc.CWD
+
+	s := NewFromConfig(rc)
 
 	// Parse heartbeat config.
 	if rc.HeartbeatIdleTimeout != "" {
@@ -136,10 +125,10 @@ func (d *Daemon) AgentInfo() *message.AgentInfo {
 		toolName = activity.LastToolName
 	}
 	info := &message.AgentInfo{
-		Name:             s.Name,
-		Command:          s.Command,
-		SessionID:        s.SessionID,
-		RoleName:         s.RoleName,
+		Name:             s.Name(),
+		Command:          s.RC.Command,
+		SessionID:        s.RC.SessionID,
+		RoleName:         s.RC.RoleName,
 		Pod:              os.Getenv("H2_POD"),
 		Uptime:           virtualterminal.FormatIdleDuration(uptime),
 		State:            st.String(),
