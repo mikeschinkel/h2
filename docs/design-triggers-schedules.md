@@ -372,23 +372,76 @@ Shared by both engines. Dispatches actions by type.
 
 ```go
 type ActionRunner struct {
-    agentName string
-    cwd       string
-    env       []string              // inherited env + H2_AGENT_NAME, etc.
-    queue     *message.MessageQueue // for message actions
+    session *Session                // access to state, env, etc.
+    queue   *message.MessageQueue   // for message actions
 }
 
-func (ar *ActionRunner) Run(action Action) error
+func (ar *ActionRunner) Run(action Action, extraEnv map[string]string) error
 ```
 
 For `Exec` actions: run via `sh -c <action>` with the agent's working directory
-and environment. Runs asynchronously — the engine does not block waiting for
-completion. Stdout/stderr are logged to the session activity log.
+and environment (see Environment Variables below). Runs asynchronously — the
+engine does not block waiting for completion. Stdout/stderr are logged to the
+session activity log.
 
 For `Message` actions: call `message.PrepareMessage()` to enqueue the message
 directly into the agent's message queue. This is synchronous and fast — no
 subprocess, no socket round-trip. The message is delivered to the agent's PTY
 through the normal delivery pipeline with the specified priority.
+
+### Environment Variables
+
+Conditions and exec actions run in a shell environment with the same base env
+vars as the agent's child process, plus additional state and event vars.
+
+**Base vars (same as agent child process):**
+
+| Variable | Description |
+|----------|------------|
+| `H2_ACTOR` | Agent name |
+| `H2_ROLE` | Role name (if set) |
+| `H2_SESSION_DIR` | Session directory path |
+| `H2_DIR` | h2 home directory |
+| `H2_POD` | Pod name (if set) |
+
+**State vars (always set):**
+
+| Variable | Description |
+|----------|------------|
+| `H2_AGENT_STATE` | Current agent state: `initialized`, `active`, `idle`, `exited` |
+| `H2_AGENT_SUBSTATE` | Current substate: `thinking`, `tool_use`, `waiting_for_permission`, `compacting`, `usage_limit`, or empty |
+
+**Event vars (triggers only — reflect the event that matched):**
+
+| Variable | Description |
+|----------|------------|
+| `H2_EVENT_TYPE` | Event type that fired the trigger: `state_change`, `approval_requested`, etc. |
+| `H2_EVENT_STATE` | State from the event (for `state_change` events) |
+| `H2_EVENT_SUBSTATE` | Substate from the event (for `state_change` events) |
+
+**Identity vars:**
+
+| Variable | Description |
+|----------|------------|
+| `H2_TRIGGER_ID` | ID of the firing trigger (triggers only) |
+| `H2_SCHEDULE_ID` | ID of the firing schedule (schedules only) |
+
+Example condition using these vars:
+
+```bash
+# Only fire if agent is idle
+test "$H2_AGENT_STATE" = "idle"
+
+# Only fire if not in usage_limit
+test "$H2_AGENT_SUBSTATE" != "usage_limit"
+```
+
+Example exec action using event vars:
+
+```bash
+# Notify user about the state change that triggered this
+h2 send --bridge user "$H2_ACTOR entered $H2_EVENT_STATE ($H2_EVENT_SUBSTATE)"
+```
 
 ### Daemon Integration
 
