@@ -182,7 +182,7 @@ type Action struct {
 
     // Message injects a message into the agent's PTY via the message queue.
     // The message is delivered as if sent by the given From identity
-    // (defaults to "h2-automation") at the given Priority (defaults to "normal").
+    // (defaults to "h2-trigger" or "h2-schedule" depending on source) at the given Priority (defaults to "normal").
     Message  string
     From     string   // sender identity for the message (default: "h2-automation")
     Priority string   // message priority: "interrupt", "normal", "idle-first", "idle"
@@ -234,7 +234,7 @@ schedules:
 ```
 
 In YAML, `exec` and `message` are the two action types. Set exactly one per
-trigger or schedule. For `message`, optional `from` (default: `h2-automation`)
+trigger or schedule. For `message`, optional `from` (default: `h2-trigger` or `h2-schedule`)
 and `priority` (default: `normal`) fields are available.
 
 Trigger and schedule action strings are rendered through the existing role
@@ -289,7 +289,7 @@ h2 schedule remove <agent-name> <schedule-id>
 ```
 
 The `--exec` and `--message` flags are mutually exclusive. For `--message`,
-optional `--from` (default: `h2-automation`) and `--priority` (default:
+optional `--from` (default: `h2-trigger` or `h2-schedule`) and `--priority` (default:
 `normal`) flags are available.
 
 ### Dynamic registration via socket
