@@ -79,6 +79,11 @@ type Harness interface {
 	// Resume support.
 	SupportsResume() bool // whether this harness supports --resume
 
+	// NativeSessionLogPath returns the path to the harness's native session
+	// log file, given a config directory, working directory, and session ID.
+	// Returns "" if this harness type has no native session logs.
+	NativeSessionLogPath(configDir, cwd, sessionID string) string
+
 	// Runtime (called after child process starts)
 	Start(ctx context.Context, events chan<- monitor.AgentEvent) error
 	HandleHookEvent(eventName string, payload json.RawMessage) bool
@@ -151,6 +156,18 @@ func Resolve(rc *config.RuntimeConfig, log *activitylog.Logger) (Harness, error)
 		return nil, fmt.Errorf("generic harness requires a command")
 	}
 	return reg.factory(rc, log), nil
+}
+
+// ResolveNativeSessionLogPath resolves the native session log path for a
+// RuntimeConfig by looking up its harness type in the registry and calling
+// the harness's NativeSessionLogPath method. Returns "" if the harness type
+// is unknown or the harness has no native session logs.
+func ResolveNativeSessionLogPath(rc *config.RuntimeConfig) string {
+	h, err := Resolve(rc, nil)
+	if err != nil {
+		return ""
+	}
+	return h.NativeSessionLogPath(rc.HarnessConfigDir(), rc.CWD, rc.HarnessSessionID)
 }
 
 // CanonicalName resolves a harness alias to its canonical name.

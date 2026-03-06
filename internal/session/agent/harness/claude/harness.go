@@ -253,12 +253,9 @@ func resolveSessionLogPath(agentName, sessionID string) string {
 //
 //	<configDir>/projects/<sanitized-cwd>/<sessionID>.jsonl
 //
-// The CWD is sanitized by replacing path separators with dashes and stripping
-// the leading dash. Returns empty string if configDir, CWD, or sessionID is empty.
-func (h *ClaudeCodeHarness) NativeSessionLogPath() string {
-	configDir := h.rc.HarnessConfigDir()
-	cwd := h.rc.CWD
-	sessionID := h.sessionID
+// The CWD is sanitized by replacing path separators with dashes.
+// Returns "" if any parameter is empty.
+func (h *ClaudeCodeHarness) NativeSessionLogPath(configDir, cwd, sessionID string) string {
 	if configDir == "" || cwd == "" || sessionID == "" {
 		return ""
 	}

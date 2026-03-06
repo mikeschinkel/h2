@@ -485,9 +485,8 @@ func TestNativeSessionLogPath(t *testing.T) {
 				SessionID:               tt.sessionID,
 			}
 			h := New(rc, nil)
-			// Set sessionID to match what PrepareForLaunch would set.
-			h.sessionID = tt.sessionID
-			got := h.NativeSessionLogPath()
+			configDir := rc.HarnessConfigDir()
+			got := h.NativeSessionLogPath(configDir, tt.cwd, tt.sessionID)
 			if got != tt.want {
 				t.Errorf("NativeSessionLogPath() = %q, want %q", got, tt.want)
 			}

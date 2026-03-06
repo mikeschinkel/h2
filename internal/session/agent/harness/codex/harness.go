@@ -64,6 +64,9 @@ func (h *CodexHarness) DisplayCommand() string { return "codex" }
 
 func (h *CodexHarness) SupportsResume() bool { return false }
 
+// NativeSessionLogPath returns "" — Codex has no native session logs.
+func (h *CodexHarness) NativeSessionLogPath(configDir, cwd, sessionID string) string { return "" }
+
 // --- Config (called before launch) ---
 
 // BuildCommandArgs maps RuntimeConfig to Codex CLI flags, combined with
