@@ -13,10 +13,12 @@ type Request struct {
 	Type string `json:"type"` // "send", "attach", "show", "status", "hook_event", "stop", "trigger_add", "trigger_list", "trigger_remove", "schedule_add", "schedule_list", "schedule_remove"
 
 	// send fields
-	Priority string `json:"priority,omitempty"`
-	From     string `json:"from,omitempty"`
-	Body     string `json:"body,omitempty"`
-	Raw      bool   `json:"raw,omitempty"` // send body directly to PTY without prefix
+	Priority        string `json:"priority,omitempty"`
+	From            string `json:"from,omitempty"`
+	Body            string `json:"body,omitempty"`
+	Raw             bool   `json:"raw,omitempty"`              // send body directly to PTY without prefix
+	ExpectsResponse bool   `json:"expects_response,omitempty"` // sender expects a response (adds annotation)
+	ERTriggerID     string `json:"er_trigger_id,omitempty"`    // trigger ID for expects-response annotation
 
 	// attach fields
 	Cols      int    `json:"cols,omitempty"`

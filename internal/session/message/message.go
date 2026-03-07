@@ -65,4 +65,8 @@ type Message struct {
 	Status      MessageStatus
 	CreatedAt   time.Time
 	DeliveredAt *time.Time
+
+	// Expects-response tracking.
+	ExpectsResponse bool   // sender requested a response
+	TriggerID       string // 8-char trigger ID for the idle reminder
 }

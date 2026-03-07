@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -74,5 +75,106 @@ func TestSendCmd_SelfSendAllowedWithFlag(t *testing.T) {
 	// Should NOT be the self-send error
 	if got := err.Error(); got == "cannot send a message to yourself (test-agent); use --allow-self to override" {
 		t.Fatal("--allow-self flag did not bypass self-send check")
+	}
+}
+
+func TestSend_RespondsTo_NoBody(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, ".h2", "sockets"), 0o700)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("H2_ROOT_DIR", filepath.Join(tmpDir, ".h2"))
+	t.Setenv("H2_ACTOR", "test-agent")
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"--responds-to", "a1b2c3d4"})
+
+	err := cmd.Execute()
+	// Should succeed (close-only) but warn about missing socket.
+	// The trigger_remove is best-effort, so no error returned.
+	if err != nil {
+		t.Fatalf("responds-to close-only should not error, got: %v", err)
+	}
+}
+
+func TestSend_RespondsTo_BodyNoTarget(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, ".h2", "sockets"), 0o700)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("H2_ROOT_DIR", filepath.Join(tmpDir, ".h2"))
+
+	cmd := newSendCmd()
+	// Body but no target — should error.
+	cmd.SetArgs([]string{"--responds-to", "a1b2c3d4", "--file", "/dev/null"})
+
+	// Write a minimal file for --file.
+	tmpFile := filepath.Join(tmpDir, "body.txt")
+	os.WriteFile(tmpFile, []byte("response body"), 0o644)
+
+	cmd2 := newSendCmd()
+	cmd2.SetArgs([]string{"--responds-to", "a1b2c3d4", "--file", tmpFile})
+	err := cmd2.Execute()
+	if err == nil {
+		t.Fatal("expected error when body present without target")
+	}
+	if !strings.Contains(err.Error(), "target agent name is required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSend_ExpectsResponse_NeedsBody(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, ".h2", "sockets"), 0o700)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("H2_ROOT_DIR", filepath.Join(tmpDir, ".h2"))
+	t.Setenv("H2_ACTOR", "sender")
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"target-agent", "--expects-response"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when no body provided")
+	}
+	if !strings.Contains(err.Error(), "message body is required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSend_ExpectsResponse_FailsOnSocket(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, ".h2", "sockets"), 0o700)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("H2_ROOT_DIR", filepath.Join(tmpDir, ".h2"))
+	t.Setenv("H2_ACTOR", "sender")
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"nonexistent-agent", "--expects-response", "check this"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected socket error for nonexistent agent")
+	}
+	// Should be a connection error, not a validation error.
+	if !strings.Contains(err.Error(), "connect") && !strings.Contains(err.Error(), "socket") {
+		t.Fatalf("expected socket/connection error, got: %v", err)
+	}
+}
+
+func TestGenShortID(t *testing.T) {
+	id := genShortID()
+	if len(id) != 8 {
+		t.Fatalf("expected 8-char ID, got %d: %q", len(id), id)
+	}
+	// Should be hex.
+	for _, c := range id {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			t.Fatalf("non-hex char %c in ID %q", c, id)
+		}
+	}
+
+	// Should generate unique IDs.
+	id2 := genShortID()
+	if id == id2 {
+		t.Fatal("expected different IDs")
 	}
 }

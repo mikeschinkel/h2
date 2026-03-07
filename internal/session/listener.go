@@ -102,7 +102,12 @@ func (d *Daemon) handleSend(conn net.Conn, req *message.Request) {
 		from = "unknown"
 	}
 
-	id, err := message.PrepareMessage(s.Queue, s.Name(), from, req.Body, priority)
+	opts := message.PrepareOpts{}
+	if req.ExpectsResponse && req.ERTriggerID != "" {
+		opts.ExpectsResponse = true
+		opts.TriggerID = req.ERTriggerID
+	}
+	id, err := message.PrepareMessage(s.Queue, s.Name(), from, req.Body, priority, opts)
 	if err != nil {
 		message.SendResponse(conn, &message.Response{
 			Error: err.Error(),

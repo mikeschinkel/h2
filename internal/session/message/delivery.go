@@ -56,9 +56,15 @@ func EnqueueRaw(q *MessageQueue, body string) string {
 	return id
 }
 
+// PrepareOpts holds optional parameters for PrepareMessage.
+type PrepareOpts struct {
+	ExpectsResponse bool
+	TriggerID       string
+}
+
 // PrepareMessage creates a Message, writes its body to disk, and enqueues it.
-// Returns the message ID.
-func PrepareMessage(q *MessageQueue, agentName, from, body string, priority Priority) (string, error) {
+// Returns the message ID. The opts parameter is optional (zero or one).
+func PrepareMessage(q *MessageQueue, agentName, from, body string, priority Priority, opts ...PrepareOpts) (string, error) {
 	id := uuid.New().String()
 	now := time.Now()
 
@@ -81,6 +87,10 @@ func PrepareMessage(q *MessageQueue, agentName, from, body string, priority Prio
 		FilePath:  filePath,
 		Status:    StatusQueued,
 		CreatedAt: now,
+	}
+	if len(opts) > 0 {
+		msg.ExpectsResponse = opts[0].ExpectsResponse
+		msg.TriggerID = opts[0].TriggerID
 	}
 	q.Enqueue(msg)
 	return id, nil
@@ -153,13 +163,18 @@ func deliver(cfg DeliveryConfig, msg *Message) {
 		if msg.Priority == PriorityInterrupt {
 			prefix = "URGENT h2 message"
 		}
+		// Add expects-response annotation if set.
+		annotation := ""
+		if msg.ExpectsResponse && msg.TriggerID != "" {
+			annotation = fmt.Sprintf(" (response expected, id: %s)", msg.TriggerID)
+		}
 		var line string
 		if len(msg.Body) <= maxInlineBodyLen {
-			line = fmt.Sprintf("[%s from: %s] %s",
-				prefix, msg.From, msg.Body)
+			line = fmt.Sprintf("[%s from: %s%s] %s",
+				prefix, msg.From, annotation, msg.Body)
 		} else {
-			line = fmt.Sprintf("[%s from: %s] Read %s",
-				prefix, msg.From, msg.FilePath)
+			line = fmt.Sprintf("[%s from: %s%s] Read %s",
+				prefix, msg.From, annotation, msg.FilePath)
 		}
 		cfg.PtyWriter.Write([]byte(line))
 	}

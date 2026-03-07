@@ -511,6 +511,98 @@ func TestPrepareMessage_UsesH2Dir(t *testing.T) {
 	}
 }
 
+func TestDeliver_ExpectsResponse_Format(t *testing.T) {
+	var buf threadSafeBuffer
+	q := NewMessageQueue()
+	stop := make(chan struct{})
+
+	msg := &Message{
+		ID:              "msg-er",
+		From:            "agent-a",
+		Priority:        PriorityNormal,
+		Body:            "check coverage",
+		FilePath:        "/tmp/test-er.md",
+		ExpectsResponse: true,
+		TriggerID:       "a1b2c3d4",
+		Status:          StatusQueued,
+		CreatedAt:       time.Now(),
+	}
+	q.Enqueue(msg)
+
+	delivered := make(chan struct{}, 1)
+	go RunDelivery(DeliveryConfig{
+		Queue:     q,
+		PtyWriter: &buf,
+		IsIdle:    func() bool { return true },
+		OnDeliver: func() {
+			select {
+			case delivered <- struct{}{}:
+			default:
+			}
+		},
+		Stop: stop,
+	})
+
+	select {
+	case <-delivered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("delivery timed out")
+	}
+	close(stop)
+
+	out := buf.String()
+	expected := "[h2 message from: agent-a (response expected, id: a1b2c3d4)] check coverage"
+	if !strings.Contains(out, expected) {
+		t.Fatalf("expected annotation in output.\nwant: %s\ngot:  %s", expected, out)
+	}
+}
+
+func TestDeliver_NormalMessage_NoAnnotation(t *testing.T) {
+	var buf threadSafeBuffer
+	q := NewMessageQueue()
+	stop := make(chan struct{})
+
+	msg := &Message{
+		ID:        "msg-no-er",
+		From:      "agent-a",
+		Priority:  PriorityNormal,
+		Body:      "just a message",
+		FilePath:  "/tmp/test-no-er.md",
+		Status:    StatusQueued,
+		CreatedAt: time.Now(),
+	}
+	q.Enqueue(msg)
+
+	delivered := make(chan struct{}, 1)
+	go RunDelivery(DeliveryConfig{
+		Queue:     q,
+		PtyWriter: &buf,
+		IsIdle:    func() bool { return true },
+		OnDeliver: func() {
+			select {
+			case delivered <- struct{}{}:
+			default:
+			}
+		},
+		Stop: stop,
+	})
+
+	select {
+	case <-delivered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("delivery timed out")
+	}
+	close(stop)
+
+	out := buf.String()
+	if strings.Contains(out, "response expected") {
+		t.Fatalf("normal message should not have expects-response annotation, got %q", out)
+	}
+	if !strings.Contains(out, "[h2 message from: agent-a] just a message") {
+		t.Fatalf("expected normal format, got %q", out)
+	}
+}
+
 func TestDeliver_NormalNoWaitForIdle(t *testing.T) {
 	var buf threadSafeBuffer
 	q := NewMessageQueue()
