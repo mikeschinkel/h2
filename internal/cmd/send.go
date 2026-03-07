@@ -66,10 +66,16 @@ With --responds-to <id>, the trigger is removed from your own daemon (and option
 				}
 			}
 
-			// Generate trigger ID for expects-response (before sending).
+			// Register trigger first for expects-response so we have the
+			// confirmed ID before sending the message annotation.
 			var triggerID string
 			if expectsResponse {
 				triggerID = genShortID()
+				confirmedID, triggerErr := registerExpectsResponseTrigger(name, from, triggerID)
+				if triggerErr != nil {
+					return fmt.Errorf("register expects-response trigger: %w", triggerErr)
+				}
+				triggerID = confirmedID
 			}
 
 			// Send the message.
@@ -113,16 +119,7 @@ With --responds-to <id>, the trigger is removed from your own daemon (and option
 				return nil
 			}
 
-			// Register idle reminder trigger on recipient.
-			finalID, triggerErr := registerExpectsResponseTrigger(name, from, triggerID)
-			if triggerErr != nil {
-				// Message was delivered but tracking failed.
-				fmt.Fprintf(os.Stderr, "warning: message delivered but response tracking not created: %v\n", triggerErr)
-				fmt.Println(triggerID)
-				os.Exit(2) // distinct from exit 1 for total failure
-			}
-
-			fmt.Println(finalID)
+			fmt.Println(triggerID)
 			return nil
 		},
 	}
