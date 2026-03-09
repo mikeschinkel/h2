@@ -136,6 +136,14 @@ For race-sensitive packages, also run:
 go test -race ./path/to/package/... -count=1
 ```
 
+**HARD RULE: If any test fails (including the race detector), the signoff CANNOT be Complete.** A failing test — whether a logic error, panic, data race, or timeout — is at minimum a Contractual-severity issue. The code does not work as specified. This is not a judgment call:
+
+- Test failure with data race → **Contractual** (correctness bug, unsafe concurrent access)
+- Test failure with wrong result → **Contractual** (behavior doesn't match spec)
+- Test failure with panic/crash → **Contractual** (code is broken)
+
+The verifying agent must report all test failures as deviations before proceeding to Step 4. Do NOT classify test failures as Cosmetic or Structural — a test failure is always externally observable and always affects correctness.
+
 ### Step 4: Determine Status and Add Signoff
 
 Use the highest-severity deviation to determine the status:
