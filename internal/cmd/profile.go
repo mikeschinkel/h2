@@ -39,9 +39,11 @@ func newProfileUpdateCmd() *cobra.Command {
 	var includeSkills bool
 	var includeInstructions bool
 	var includeSettings bool
+	var all bool
+	var dryRun bool
 
 	cmd := &cobra.Command{
-		Use:   "update <name>",
+		Use:   "update [<name>]",
 		Short: "Update a profile to generated defaults",
 		Long: `Update profile content to h2-generated defaults.
 
@@ -49,9 +51,50 @@ By default, update refreshes instructions, managed skills, and settings, while
 preserving auth files.
 
 Managed skills are updated non-destructively: h2 updates only template-managed
-skill files and leaves user-added skills untouched.`,
-		Args: cobra.ExactArgs(1),
+skill files and leaves user-added skills untouched.
+
+Use --all to update every profile in the profiles-shared directory.
+Use --dry-run to preview what would be added or changed without writing.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			resolvedStyle, err := resolveInitStyle(style)
+			if err != nil {
+				return err
+			}
+			h2Dir := config.ConfigDir()
+			opts := resetProfileOpts{
+				includeAuth:         includeAuth,
+				includeSkills:       includeSkills,
+				includeInstructions: includeInstructions,
+				includeSettings:     includeSettings,
+				dryRun:              dryRun,
+			}
+
+			if all {
+				if len(args) > 0 {
+					return fmt.Errorf("cannot specify both --all and a profile name")
+				}
+				profiles, err := discoverProfiles(h2Dir)
+				if err != nil {
+					return err
+				}
+				if len(profiles) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "No profiles found.")
+					return nil
+				}
+				for _, name := range profiles {
+					fmt.Fprintf(cmd.OutOrStdout(), "Updating profile %q:\n", name)
+					if err := resetProfile(h2Dir, name, resolvedStyle, opts, cmd.OutOrStdout()); err != nil {
+						return fmt.Errorf("update profile %q: %w", name, err)
+					}
+					fmt.Fprintln(cmd.OutOrStdout())
+				}
+				return nil
+			}
+
+			if len(args) < 1 {
+				return fmt.Errorf("profile name is required (or use --all)")
+			}
 			name := strings.TrimSpace(args[0])
 			if name == "" {
 				return fmt.Errorf("profile name is required")
@@ -60,12 +103,8 @@ skill files and leaves user-added skills untouched.`,
 				return fmt.Errorf("profile name must not contain path separators: %q", name)
 			}
 
-			resolvedStyle, err := resolveInitStyle(style)
-			if err != nil {
-				return err
-			}
-			h2Dir := config.ConfigDir()
-			return resetProfile(h2Dir, name, resolvedStyle, includeAuth, includeSkills, includeInstructions, includeSettings, cmd.OutOrStdout())
+			fmt.Fprintf(cmd.OutOrStdout(), "Updating profile %q:\n", name)
+			return resetProfile(h2Dir, name, resolvedStyle, opts, cmd.OutOrStdout())
 		},
 	}
 
@@ -74,6 +113,8 @@ skill files and leaves user-added skills untouched.`,
 	cmd.Flags().BoolVar(&includeSkills, "include-skills", true, "Update managed shared skills")
 	cmd.Flags().BoolVar(&includeInstructions, "include-instructions", true, "Update shared instructions file")
 	cmd.Flags().BoolVar(&includeSettings, "include-settings", true, "Update harness settings/config files and profile symlinks")
+	cmd.Flags().BoolVar(&all, "all", false, "Update all installed profiles")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing")
 	return cmd
 }
 
@@ -221,7 +262,50 @@ func createProfile(h2Dir, name, style, symlinkSharedFrom, harnessType string, ou
 	return createOrUpdateProfile(h2Dir, name, style, symlinkSharedFrom, harnessType, true, true, out)
 }
 
-func resetProfile(h2Dir, name, style string, includeAuth, includeSkills, includeInstructions, includeSettings bool, out io.Writer) error {
+// resetProfileOpts holds options for resetProfile.
+type resetProfileOpts struct {
+	includeAuth         bool
+	includeSkills       bool
+	includeInstructions bool
+	includeSettings     bool
+	dryRun              bool
+}
+
+// fileStatus describes the dry-run status of a file.
+type fileStatus int
+
+const (
+	fileUnchanged fileStatus = iota
+	fileUpdated
+	fileAdded
+)
+
+// compareFileContent returns the status of a file relative to new content.
+func compareFileContent(path, newContent string) fileStatus {
+	existing, err := os.ReadFile(path)
+	if err != nil {
+		return fileAdded
+	}
+	if string(existing) == newContent {
+		return fileUnchanged
+	}
+	return fileUpdated
+}
+
+// fileStatusLabel returns a human-readable label for a file status.
+func fileStatusLabel(s fileStatus) string {
+	switch s {
+	case fileUnchanged:
+		return "unchanged"
+	case fileUpdated:
+		return "updated"
+	case fileAdded:
+		return "added"
+	}
+	return "unknown"
+}
+
+func resetProfile(h2Dir, name, style string, opts resetProfileOpts, out io.Writer) error {
 	sharedDir := filepath.Join(h2Dir, "profiles-shared", name)
 	sharedSkillsDir := filepath.Join(sharedDir, "skills")
 	claudeDir := filepath.Join(h2Dir, "claude-config", name)
@@ -234,27 +318,116 @@ func resetProfile(h2Dir, name, style string, includeAuth, includeSkills, include
 		return fmt.Errorf("profile %q not found", name)
 	}
 
-	if includeInstructions || includeSkills {
+	if !opts.dryRun && (opts.includeInstructions || opts.includeSkills) {
 		if err := os.MkdirAll(sharedDir, 0o755); err != nil {
 			return fmt.Errorf("create shared profile dir: %w", err)
 		}
 	}
 
-	if includeInstructions {
-		if err := os.WriteFile(filepath.Join(sharedDir, "CLAUDE_AND_AGENTS.md"), []byte(config.InstructionsTemplateWithStyle(style)), 0o644); err != nil {
-			return fmt.Errorf("write CLAUDE_AND_AGENTS.md: %w", err)
+	if opts.includeInstructions {
+		label := fmt.Sprintf("profiles-shared/%s/CLAUDE_AND_AGENTS.md", name)
+		content := config.InstructionsTemplateWithStyle(style)
+		status := compareFileContent(filepath.Join(sharedDir, "CLAUDE_AND_AGENTS.md"), content)
+		if opts.dryRun {
+			fmt.Fprintf(out, "  %s: %s\n", label, fileStatusLabel(status))
+		} else {
+			if err := os.WriteFile(filepath.Join(sharedDir, "CLAUDE_AND_AGENTS.md"), []byte(content), 0o644); err != nil {
+				return fmt.Errorf("write CLAUDE_AND_AGENTS.md: %w", err)
+			}
+			if err := config.UpsertContentMeta(sharedDir, style, []string{"CLAUDE_AND_AGENTS.md"}); err != nil {
+				return fmt.Errorf("update shared metadata: %w", err)
+			}
+			fmt.Fprintf(out, "  %s: %s\n", label, fileStatusLabel(status))
 		}
-		if err := config.UpsertContentMeta(sharedDir, style, []string{"CLAUDE_AND_AGENTS.md"}); err != nil {
-			return fmt.Errorf("update shared metadata: %w", err)
-		}
-		fmt.Fprintf(out, "  Wrote profiles-shared/%s/CLAUDE_AND_AGENTS.md\n", name)
 	}
 
-	if includeSkills {
-		skillPaths, err := managedSkillRelativePaths(style)
-		if err != nil {
+	if opts.includeSkills {
+		if err := resetProfileSkills(h2Dir, name, style, sharedDir, sharedSkillsDir, opts.dryRun, out); err != nil {
 			return err
 		}
+	}
+
+	if opts.includeSettings {
+		if claudeExists {
+			if err := resetProfileClaudeSettings(claudeDir, name, style, opts.dryRun, out); err != nil {
+				return err
+			}
+		}
+		if codexExists {
+			if err := resetProfileCodexSettings(codexDir, name, style, opts.dryRun, out); err != nil {
+				return err
+			}
+		}
+	}
+
+	if opts.includeAuth {
+		if claudeExists {
+			authPath := filepath.Join(claudeDir, ".claude.json")
+			label := fmt.Sprintf("claude-config/%s/.claude.json", name)
+			if opts.dryRun {
+				if pathExists(authPath) {
+					fmt.Fprintf(out, "  %s: would clear\n", label)
+				} else {
+					fmt.Fprintf(out, "  %s: not present\n", label)
+				}
+			} else {
+				if err := os.Remove(authPath); err != nil && !os.IsNotExist(err) {
+					return fmt.Errorf("remove claude auth: %w", err)
+				}
+				if pathExists(authPath) {
+					return fmt.Errorf("remove claude auth: %s still exists", authPath)
+				}
+				fmt.Fprintf(out, "  %s: cleared\n", label)
+			}
+		}
+		if codexExists {
+			authPath := filepath.Join(codexDir, "auth.json")
+			label := fmt.Sprintf("codex-config/%s/auth.json", name)
+			if opts.dryRun {
+				if pathExists(authPath) {
+					fmt.Fprintf(out, "  %s: would clear\n", label)
+				} else {
+					fmt.Fprintf(out, "  %s: not present\n", label)
+				}
+			} else {
+				if err := os.Remove(authPath); err != nil && !os.IsNotExist(err) {
+					return fmt.Errorf("remove codex auth: %w", err)
+				}
+				if pathExists(authPath) {
+					return fmt.Errorf("remove codex auth: %s still exists", authPath)
+				}
+				fmt.Fprintf(out, "  %s: cleared\n", label)
+			}
+		}
+	}
+
+	if opts.dryRun {
+		fmt.Fprintf(out, "Dry run for profile %q (no changes written)\n", name)
+	} else {
+		fmt.Fprintf(out, "Updated profile %q\n", name)
+	}
+	return nil
+}
+
+// resetProfileSkills handles the skills and shared-skill-scripts portion of a profile update.
+func resetProfileSkills(h2Dir, name, style, sharedDir, sharedSkillsDir string, dryRun bool, out io.Writer) error {
+	skillPaths, err := managedSkillRelativePaths(style)
+	if err != nil {
+		return err
+	}
+
+	if dryRun {
+		for _, relPath := range skillPaths {
+			label := fmt.Sprintf("profiles-shared/%s/%s", name, relPath)
+			templatePath := fmt.Sprintf("templates/styles/%s/%s", style, relPath)
+			data, readErr := config.Templates.ReadFile(templatePath)
+			if readErr != nil {
+				continue
+			}
+			status := compareFileContent(filepath.Join(sharedDir, relPath), string(data))
+			fmt.Fprintf(out, "  %s: %s\n", label, fileStatusLabel(status))
+		}
+	} else {
 		if err := writeManagedSkillsTemplateNonDestructive(style, sharedSkillsDir); err != nil {
 			return fmt.Errorf("write shared skills: %w", err)
 		}
@@ -263,13 +436,29 @@ func resetProfile(h2Dir, name, style string, includeAuth, includeSkills, include
 				return fmt.Errorf("update shared metadata: %w", err)
 			}
 		}
-		fmt.Fprintf(out, "  Updated managed profiles-shared/%s/skills/\n", name)
-
-		sharedScriptsDir := filepath.Join(sharedDir, "shared-skill-scripts")
-		scriptPaths, err := managedSharedSkillScriptRelativePaths(style)
-		if err != nil {
-			return err
+		for _, relPath := range skillPaths {
+			fmt.Fprintf(out, "  profiles-shared/%s/%s: updated\n", name, relPath)
 		}
+	}
+
+	sharedScriptsDir := filepath.Join(sharedDir, "shared-skill-scripts")
+	scriptPaths, err := managedSharedSkillScriptRelativePaths(style)
+	if err != nil {
+		return err
+	}
+
+	if dryRun {
+		for _, relPath := range scriptPaths {
+			label := fmt.Sprintf("profiles-shared/%s/%s", name, relPath)
+			templatePath := fmt.Sprintf("templates/styles/%s/%s", style, relPath)
+			data, readErr := config.Templates.ReadFile(templatePath)
+			if readErr != nil {
+				continue
+			}
+			status := compareFileContent(filepath.Join(sharedDir, relPath), string(data))
+			fmt.Fprintf(out, "  %s: %s\n", label, fileStatusLabel(status))
+		}
+	} else {
 		if err := writeManagedSharedSkillScriptsNonDestructive(style, sharedScriptsDir); err != nil {
 			return fmt.Errorf("write shared-skill-scripts: %w", err)
 		}
@@ -278,47 +467,75 @@ func resetProfile(h2Dir, name, style string, includeAuth, includeSkills, include
 				return fmt.Errorf("update shared metadata: %w", err)
 			}
 		}
-		fmt.Fprintf(out, "  Updated managed profiles-shared/%s/shared-skill-scripts/\n", name)
-	}
-
-	if includeSettings {
-		if claudeExists {
-			if err := ensureClaudeProfileScaffold(claudeDir, name, style, out); err != nil {
-				return err
-			}
-		}
-		if codexExists {
-			if err := ensureCodexProfileScaffold(codexDir, name, style, out); err != nil {
-				return err
-			}
+		for _, relPath := range scriptPaths {
+			fmt.Fprintf(out, "  profiles-shared/%s/%s: updated\n", name, relPath)
 		}
 	}
-
-	if includeAuth {
-		if claudeExists {
-			authPath := filepath.Join(claudeDir, ".claude.json")
-			if err := os.Remove(authPath); err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("remove claude auth: %w", err)
-			}
-			if pathExists(authPath) {
-				return fmt.Errorf("remove claude auth: %s still exists", authPath)
-			}
-			fmt.Fprintf(out, "  Cleared claude-config/%s/.claude.json\n", name)
-		}
-		if codexExists {
-			authPath := filepath.Join(codexDir, "auth.json")
-			if err := os.Remove(authPath); err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("remove codex auth: %w", err)
-			}
-			if pathExists(authPath) {
-				return fmt.Errorf("remove codex auth: %s still exists", authPath)
-			}
-			fmt.Fprintf(out, "  Cleared codex-config/%s/auth.json\n", name)
-		}
-	}
-
-	fmt.Fprintf(out, "Reset profile %q\n", name)
 	return nil
+}
+
+// resetProfileClaudeSettings handles Claude harness settings/symlinks for a profile update.
+func resetProfileClaudeSettings(claudeDir, name, style string, dryRun bool, out io.Writer) error {
+	if dryRun {
+		// Check symlinks.
+		for _, link := range []struct{ file, target string }{
+			{"CLAUDE.md", filepath.Join("..", "..", "profiles-shared", name, "CLAUDE_AND_AGENTS.md")},
+			{"skills", filepath.Join("..", "..", "profiles-shared", name, "skills")},
+			{"shared-skill-scripts", filepath.Join("..", "..", "profiles-shared", name, "shared-skill-scripts")},
+		} {
+			label := fmt.Sprintf("claude-config/%s/%s", name, link.file)
+			existing, err := os.Readlink(filepath.Join(claudeDir, link.file))
+			if err == nil && existing == link.target {
+				fmt.Fprintf(out, "  %s: unchanged (symlink)\n", label)
+			} else if err == nil {
+				fmt.Fprintf(out, "  %s: updated (symlink)\n", label)
+			} else {
+				fmt.Fprintf(out, "  %s: added (symlink)\n", label)
+			}
+		}
+		// Check settings.json.
+		label := fmt.Sprintf("claude-config/%s/settings.json", name)
+		status := compareFileContent(filepath.Join(claudeDir, "settings.json"), config.ClaudeSettingsTemplate(style))
+		fmt.Fprintf(out, "  %s: %s\n", label, fileStatusLabel(status))
+		return nil
+	}
+	return ensureClaudeProfileScaffold(claudeDir, name, style, out)
+}
+
+// resetProfileCodexSettings handles Codex harness settings/symlinks for a profile update.
+func resetProfileCodexSettings(codexDir, name, style string, dryRun bool, out io.Writer) error {
+	if dryRun {
+		// Check symlinks.
+		for _, link := range []struct{ file, target string }{
+			{"AGENTS.md", filepath.Join("..", "..", "profiles-shared", name, "CLAUDE_AND_AGENTS.md")},
+			{"skills", filepath.Join("..", "..", "profiles-shared", name, "skills")},
+			{"shared-skill-scripts", filepath.Join("..", "..", "profiles-shared", name, "shared-skill-scripts")},
+		} {
+			label := fmt.Sprintf("codex-config/%s/%s", name, link.file)
+			existing, err := os.Readlink(filepath.Join(codexDir, link.file))
+			if err == nil && existing == link.target {
+				fmt.Fprintf(out, "  %s: unchanged (symlink)\n", label)
+			} else if err == nil {
+				fmt.Fprintf(out, "  %s: updated (symlink)\n", label)
+			} else {
+				fmt.Fprintf(out, "  %s: added (symlink)\n", label)
+			}
+		}
+		// Check config files.
+		for _, f := range []struct {
+			file    string
+			content string
+		}{
+			{"config.toml", config.CodexConfigTemplate(style)},
+			{"requirements.toml", config.CodexRequirementsTemplate(style)},
+		} {
+			label := fmt.Sprintf("codex-config/%s/%s", name, f.file)
+			status := compareFileContent(filepath.Join(codexDir, f.file), f.content)
+			fmt.Fprintf(out, "  %s: %s\n", label, fileStatusLabel(status))
+		}
+		return nil
+	}
+	return ensureCodexProfileScaffold(codexDir, name, style, out)
 }
 
 func createOrUpdateProfile(h2Dir, name, style, symlinkSharedFrom, harnessType string, requireNew, announce bool, out io.Writer) error {

@@ -371,3 +371,179 @@ func TestProfileShow_IncludesSymlinksAndMetadata(t *testing.T) {
 		t.Fatalf("missing shared metadata file: %v", err)
 	}
 }
+
+func TestProfileUpdate_All(t *testing.T) {
+	h2Dir := setupProfileTestH2Dir(t)
+
+	// Create two profiles.
+	for _, name := range []string{"alpha", "beta"} {
+		cmd := newProfileCreateCmd()
+		cmd.SetArgs([]string{name})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("create profile %s: %v", name, err)
+		}
+	}
+
+	// Modify instructions in both to make them stale.
+	for _, name := range []string{"alpha", "beta"} {
+		p := filepath.Join(h2Dir, "profiles-shared", name, "CLAUDE_AND_AGENTS.md")
+		if err := os.WriteFile(p, []byte("stale"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Run update --all.
+	cmd := newProfileUpdateCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--all"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("update --all failed: %v", err)
+	}
+
+	output := out.String()
+	// Both profiles should be mentioned.
+	if !strings.Contains(output, `Updating profile "alpha"`) {
+		t.Fatalf("expected alpha in output:\n%s", output)
+	}
+	if !strings.Contains(output, `Updating profile "beta"`) {
+		t.Fatalf("expected beta in output:\n%s", output)
+	}
+
+	// Verify both were actually updated.
+	for _, name := range []string{"alpha", "beta"} {
+		got, err := os.ReadFile(filepath.Join(h2Dir, "profiles-shared", name, "CLAUDE_AND_AGENTS.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) == "stale" {
+			t.Fatalf("profile %s was not updated", name)
+		}
+	}
+}
+
+func TestProfileUpdate_AllAndNameConflict(t *testing.T) {
+	setupProfileTestH2Dir(t)
+
+	cmd := newProfileUpdateCmd()
+	cmd.SetArgs([]string{"--all", "some-name"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when --all and name both provided")
+	}
+	if !strings.Contains(err.Error(), "cannot specify both") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestProfileUpdate_DryRun(t *testing.T) {
+	h2Dir := setupProfileTestH2Dir(t)
+
+	// Create a profile.
+	createCmd := newProfileCreateCmd()
+	createCmd.SetArgs([]string{"test-profile"})
+	if err := createCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Make instructions stale so dry-run shows "updated".
+	instrPath := filepath.Join(h2Dir, "profiles-shared", "test-profile", "CLAUDE_AND_AGENTS.md")
+	if err := os.WriteFile(instrPath, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	origContent, _ := os.ReadFile(instrPath)
+
+	// Run update --dry-run.
+	cmd := newProfileUpdateCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"test-profile", "--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("dry-run failed: %v", err)
+	}
+
+	output := out.String()
+	if !strings.Contains(output, "CLAUDE_AND_AGENTS.md: updated") {
+		t.Fatalf("expected 'updated' status in dry-run output:\n%s", output)
+	}
+	if !strings.Contains(output, "Dry run") {
+		t.Fatalf("expected 'Dry run' in output:\n%s", output)
+	}
+
+	// File should NOT have changed.
+	afterContent, _ := os.ReadFile(instrPath)
+	if string(afterContent) != string(origContent) {
+		t.Fatalf("dry-run modified the file")
+	}
+}
+
+func TestProfileUpdate_DryRunUnchanged(t *testing.T) {
+	setupProfileTestH2Dir(t)
+
+	// Create a profile (fresh, so everything matches templates).
+	createCmd := newProfileCreateCmd()
+	createCmd.SetArgs([]string{"fresh"})
+	if err := createCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run update --dry-run — everything should be "unchanged".
+	cmd := newProfileUpdateCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"fresh", "--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("dry-run failed: %v", err)
+	}
+
+	output := out.String()
+	if !strings.Contains(output, "CLAUDE_AND_AGENTS.md: unchanged") {
+		t.Fatalf("expected 'unchanged' for fresh profile:\n%s", output)
+	}
+}
+
+func TestProfileUpdate_DryRunAll(t *testing.T) {
+	h2Dir := setupProfileTestH2Dir(t)
+
+	// Create two profiles, make one stale.
+	for _, name := range []string{"p1", "p2"} {
+		cmd := newProfileCreateCmd()
+		cmd.SetArgs([]string{name})
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(h2Dir, "profiles-shared", "p1", "CLAUDE_AND_AGENTS.md"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProfileUpdateCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--all", "--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("dry-run --all failed: %v", err)
+	}
+
+	output := out.String()
+	// p1 should show updated, p2 unchanged.
+	if !strings.Contains(output, `Updating profile "p1"`) {
+		t.Fatalf("missing p1 in output:\n%s", output)
+	}
+	if !strings.Contains(output, `Updating profile "p2"`) {
+		t.Fatalf("missing p2 in output:\n%s", output)
+	}
+	if !strings.Contains(output, "Dry run") {
+		t.Fatalf("missing 'Dry run' in output:\n%s", output)
+	}
+
+	// Verify no files were modified.
+	p1Content, _ := os.ReadFile(filepath.Join(h2Dir, "profiles-shared", "p1", "CLAUDE_AND_AGENTS.md"))
+	if string(p1Content) != "stale" {
+		t.Fatal("dry-run modified p1")
+	}
+}
