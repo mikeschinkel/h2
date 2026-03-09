@@ -197,6 +197,70 @@ func WriteSkillsTemplate(style, targetDir string, force bool) error {
 	return nil
 }
 
+// WriteSharedSkillScriptsTemplate materializes the embedded style-specific
+// shared-skill-scripts template into targetDir. For minimal style, this
+// intentionally results in an empty directory. If force is false and targetDir
+// is non-empty, it leaves content unchanged.
+func WriteSharedSkillScriptsTemplate(style, targetDir string, force bool) error {
+	style = normalizeTemplateStyle(style)
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return fmt.Errorf("create shared-skill-scripts target dir: %w", err)
+	}
+
+	if !force {
+		if entries, err := os.ReadDir(targetDir); err == nil && len(entries) > 0 {
+			return nil
+		}
+	}
+
+	if force {
+		entries, err := os.ReadDir(targetDir)
+		if err != nil {
+			return fmt.Errorf("read shared-skill-scripts target dir: %w", err)
+		}
+		for _, e := range entries {
+			if err := os.RemoveAll(filepath.Join(targetDir, e.Name())); err != nil {
+				return fmt.Errorf("clear shared-skill-scripts target dir: %w", err)
+			}
+		}
+	}
+
+	root := fmt.Sprintf("templates/styles/%s/shared-skill-scripts", style)
+	err := fs.WalkDir(Templates, root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel := strings.TrimPrefix(path, root)
+		rel = strings.TrimPrefix(rel, "/")
+		if rel == "" {
+			return nil
+		}
+		dst := filepath.Join(targetDir, filepath.FromSlash(rel))
+		if d.IsDir() {
+			return os.MkdirAll(dst, 0o755)
+		}
+		if filepath.Base(dst) == ".gitkeep" {
+			return nil
+		}
+		data, readErr := Templates.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(dst, data, 0o644)
+	})
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			// No shared-skill-scripts template tree for this style.
+			return nil
+		}
+		return fmt.Errorf("materialize shared-skill-scripts template: %w", err)
+	}
+	return nil
+}
+
 func normalizeTemplateStyle(style string) string {
 	switch strings.TrimSpace(strings.ToLower(style)) {
 	case templateStyleMinimal:

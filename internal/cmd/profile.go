@@ -131,8 +131,10 @@ func newProfileShowCmd() *cobra.Command {
 			fmt.Fprintf(out, "  Symlink profiles-shared/%s: %s\n", name, symlinkStatus(sharedDir))
 			fmt.Fprintf(out, "  Symlink claude-config/%s/CLAUDE.md: %s\n", name, symlinkStatus(filepath.Join(claudeDir, "CLAUDE.md")))
 			fmt.Fprintf(out, "  Symlink claude-config/%s/skills: %s\n", name, symlinkStatus(filepath.Join(claudeDir, "skills")))
+			fmt.Fprintf(out, "  Symlink claude-config/%s/shared-skill-scripts: %s\n", name, symlinkStatus(filepath.Join(claudeDir, "shared-skill-scripts")))
 			fmt.Fprintf(out, "  Symlink codex-config/%s/AGENTS.md: %s\n", name, symlinkStatus(filepath.Join(codexDir, "AGENTS.md")))
 			fmt.Fprintf(out, "  Symlink codex-config/%s/skills: %s\n", name, symlinkStatus(filepath.Join(codexDir, "skills")))
+			fmt.Fprintf(out, "  Symlink codex-config/%s/shared-skill-scripts: %s\n", name, symlinkStatus(filepath.Join(codexDir, "shared-skill-scripts")))
 
 			if claudeExists {
 				auth, err := config.IsClaudeConfigAuthenticated(claudeDir)
@@ -262,6 +264,21 @@ func resetProfile(h2Dir, name, style string, includeAuth, includeSkills, include
 			}
 		}
 		fmt.Fprintf(out, "  Updated managed profiles-shared/%s/skills/\n", name)
+
+		sharedScriptsDir := filepath.Join(sharedDir, "shared-skill-scripts")
+		scriptPaths, err := managedSharedSkillScriptRelativePaths(style)
+		if err != nil {
+			return err
+		}
+		if err := writeManagedSharedSkillScriptsNonDestructive(style, sharedScriptsDir); err != nil {
+			return fmt.Errorf("write shared-skill-scripts: %w", err)
+		}
+		if len(scriptPaths) > 0 {
+			if err := config.UpsertContentMeta(sharedDir, style, scriptPaths); err != nil {
+				return fmt.Errorf("update shared metadata: %w", err)
+			}
+		}
+		fmt.Fprintf(out, "  Updated managed profiles-shared/%s/shared-skill-scripts/\n", name)
 	}
 
 	if includeSettings {
@@ -347,6 +364,7 @@ func createOrUpdateProfile(h2Dir, name, style, symlinkSharedFrom, harnessType st
 func scaffoldProfile(h2Dir, name, style, harnessType string, out io.Writer, announce bool) error {
 	sharedDir := filepath.Join(h2Dir, "profiles-shared", name)
 	sharedSkillsDir := filepath.Join(sharedDir, "skills")
+	sharedScriptsDir := filepath.Join(sharedDir, "shared-skill-scripts")
 	claudeDir := filepath.Join(h2Dir, "claude-config", name)
 	codexDir := filepath.Join(h2Dir, "codex-config", name)
 
@@ -355,6 +373,12 @@ func scaffoldProfile(h2Dir, name, style, harnessType string, out io.Writer, anno
 	}
 	if err := config.WriteSkillsTemplate(style, sharedSkillsDir, false); err != nil {
 		return fmt.Errorf("write shared skills: %w", err)
+	}
+	if err := os.MkdirAll(sharedScriptsDir, 0o755); err != nil {
+		return fmt.Errorf("create shared profile shared-skill-scripts dir: %w", err)
+	}
+	if err := config.WriteSharedSkillScriptsTemplate(style, sharedScriptsDir, false); err != nil {
+		return fmt.Errorf("write shared-skill-scripts: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(sharedDir, "CLAUDE_AND_AGENTS.md"), []byte(config.InstructionsTemplateWithStyle(style)), 0o644); err != nil {
 		return fmt.Errorf("write CLAUDE_AND_AGENTS.md: %w", err)
@@ -371,8 +395,18 @@ func scaffoldProfile(h2Dir, name, style, harnessType string, out io.Writer, anno
 			return fmt.Errorf("update shared metadata: %w", err)
 		}
 	}
+	managedScripts, err := managedSharedSkillScriptRelativePaths(style)
+	if err != nil {
+		return err
+	}
+	if len(managedScripts) > 0 {
+		if err := config.UpsertContentMeta(sharedDir, style, managedScripts); err != nil {
+			return fmt.Errorf("update shared metadata: %w", err)
+		}
+	}
 	fmt.Fprintf(out, "  Wrote profiles-shared/%s/CLAUDE_AND_AGENTS.md\n", name)
 	fmt.Fprintf(out, "  Wrote profiles-shared/%s/skills/\n", name)
+	fmt.Fprintf(out, "  Wrote profiles-shared/%s/shared-skill-scripts/\n", name)
 
 	if harnessType == profileHarnessAll || harnessType == profileHarnessClaude {
 		if err := ensureClaudeProfileScaffold(claudeDir, name, style, out); err != nil {
@@ -534,6 +568,81 @@ func managedSkillRelativePaths(style string) ([]string, error) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("list managed skills: %w", err)
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+func writeManagedSharedSkillScriptsNonDestructive(style, targetDir string) error {
+	style = strings.TrimSpace(strings.ToLower(style))
+	if style == "" {
+		style = initStyleOpinionated
+	}
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return fmt.Errorf("create shared-skill-scripts target dir: %w", err)
+	}
+	root := fmt.Sprintf("templates/styles/%s/shared-skill-scripts", style)
+	err := fs.WalkDir(config.Templates, root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel := strings.TrimPrefix(path, root)
+		rel = strings.TrimPrefix(rel, "/")
+		if rel == "" {
+			return nil
+		}
+		dst := filepath.Join(targetDir, filepath.FromSlash(rel))
+		if d.IsDir() {
+			return os.MkdirAll(dst, 0o755)
+		}
+		if filepath.Base(dst) == ".gitkeep" {
+			return nil
+		}
+		data, readErr := config.Templates.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(dst, data, 0o644)
+	})
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("materialize managed shared-skill-scripts template: %w", err)
+	}
+	return nil
+}
+
+func managedSharedSkillScriptRelativePaths(style string) ([]string, error) {
+	style = strings.TrimSpace(strings.ToLower(style))
+	if style == "" {
+		style = initStyleOpinionated
+	}
+	root := fmt.Sprintf("templates/styles/%s/shared-skill-scripts", style)
+	paths := []string{}
+	err := fs.WalkDir(config.Templates, root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel := strings.TrimPrefix(path, root)
+		rel = strings.TrimPrefix(rel, "/")
+		if rel == "" || filepath.Base(rel) == ".gitkeep" {
+			return nil
+		}
+		paths = append(paths, filepath.ToSlash(filepath.Join("shared-skill-scripts", filepath.FromSlash(rel))))
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list managed shared-skill-scripts: %w", err)
 	}
 	sort.Strings(paths)
 	return paths, nil
@@ -714,10 +823,14 @@ func symlinkStatus(path string) string {
 func ensureClaudeProfileLinks(claudeDir, profileName string, out io.Writer) error {
 	mdTarget := filepath.Join("..", "..", "profiles-shared", profileName, "CLAUDE_AND_AGENTS.md")
 	skillsTarget := filepath.Join("..", "..", "profiles-shared", profileName, "skills")
+	sharedScriptsTarget := filepath.Join("..", "..", "profiles-shared", profileName, "shared-skill-scripts")
 	if err := ensureSymlink(filepath.Join(claudeDir, "CLAUDE.md"), mdTarget, true, out, "claude-config/"+profileName+"/CLAUDE.md"); err != nil {
 		return err
 	}
 	if err := ensureSymlink(filepath.Join(claudeDir, "skills"), skillsTarget, true, out, "claude-config/"+profileName+"/skills"); err != nil {
+		return err
+	}
+	if err := ensureSymlink(filepath.Join(claudeDir, "shared-skill-scripts"), sharedScriptsTarget, true, out, "claude-config/"+profileName+"/shared-skill-scripts"); err != nil {
 		return err
 	}
 	return nil
@@ -726,10 +839,14 @@ func ensureClaudeProfileLinks(claudeDir, profileName string, out io.Writer) erro
 func ensureCodexProfileLinks(codexDir, profileName string, out io.Writer) error {
 	mdTarget := filepath.Join("..", "..", "profiles-shared", profileName, "CLAUDE_AND_AGENTS.md")
 	skillsTarget := filepath.Join("..", "..", "profiles-shared", profileName, "skills")
+	sharedScriptsTarget := filepath.Join("..", "..", "profiles-shared", profileName, "shared-skill-scripts")
 	if err := ensureSymlink(filepath.Join(codexDir, "AGENTS.md"), mdTarget, true, out, "codex-config/"+profileName+"/AGENTS.md"); err != nil {
 		return err
 	}
 	if err := ensureSymlink(filepath.Join(codexDir, "skills"), skillsTarget, true, out, "codex-config/"+profileName+"/skills"); err != nil {
+		return err
+	}
+	if err := ensureSymlink(filepath.Join(codexDir, "shared-skill-scripts"), sharedScriptsTarget, true, out, "codex-config/"+profileName+"/shared-skill-scripts"); err != nil {
 		return err
 	}
 	return nil

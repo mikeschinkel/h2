@@ -175,3 +175,7 @@ ls docs/reviews/{bead-id}-r*.md
 # Find incorporation commits
 git log --all --grep="Review-Ref: docs/reviews/{bead-id}"
 ```
+
+### Pipeline Audit Script
+
+Use `shared-skill-scripts/pipeline-audit.py` to programmatically verify the audit trail for a bead. It checks that all expected review docs, incorporation commits, and bead comments exist and are consistent.

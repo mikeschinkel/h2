@@ -163,3 +163,7 @@ A concierge or scheduler typically assigns code reviews after implementation bea
 4. Repeat until clean or all findings dispositioned
 
 After final sign-off, the bead can be closed. The review docs in `docs/reviews/` form the permanent audit trail.
+
+### Pipeline Audit Script
+
+Use `shared-skill-scripts/pipeline-audit.py` to programmatically verify the audit trail for a bead. It checks that all expected review docs, incorporation commits, and bead comments exist and are consistent.
