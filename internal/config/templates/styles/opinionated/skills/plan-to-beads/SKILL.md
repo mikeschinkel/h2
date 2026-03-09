@@ -75,8 +75,9 @@ Apply these decomposition rules to generate implementation tasks from the catalo
 
 1. **Always bundle**: Implementation code + its unit tests + its integration tests = one task.
 2. **Always bundle**: Types/interfaces that are only used by one component go in that component's task, not a separate "types" task.
-3. **Split if**: A component has clearly independent sub-components with no internal coupling (e.g., different data structures that share only a common interface).
-4. **Merge if**: Two components are tightly coupled and hard to test independently (e.g., parser + writer for the same protocol).
+3. **Always bundle**: Acceptance test implementation goes in the integration/wiring bead for that vertical slice, not in a separate "acceptance tests" bead.
+4. **Split if**: A component has clearly independent sub-components with no internal coupling (e.g., different data structures that share only a common interface).
+5. **Merge if**: Two components are tightly coupled and hard to test independently (e.g., parser + writer for the same protocol).
 
 ### Foundation-First Ordering
 
@@ -86,6 +87,10 @@ Within a plan doc's decomposition, identify which tasks are foundational:
 - Framework/harness setup that test suites build on
 
 These become the first tasks in the dependency chain for that doc.
+
+### Acceptance Criteria as Deliverables
+
+The plan doc's acceptance criteria become explicit deliverables in implementation beads. The final bead in each vertical slice (typically the integration/wiring bead) must include "acceptance tests pass" as a completion criterion. This means the bead is not done until the acceptance scenarios run successfully against the end-user interface.
 
 ### Pattern Leaders
 

@@ -35,6 +35,8 @@ Evaluate the plan for:
 - **Correctness**: Are algorithms, protocols, and data structures specified correctly? Any race conditions, crash recovery gaps, or consistency violations?
 - **Completeness**: Are all interfaces fully defined? Any hand-waved sections? Missing error handling paths?
 - **Consistency**: Does this doc align with the architecture doc and dependency docs? Are cross-document interfaces compatible?
+- **Acceptance Criteria**: Do acceptance criteria exist? Are they concrete and testable? Does each one cross at least one component boundary? Flag if any criteria only test internal behavior without boundary crossing. Flag if criteria use internal APIs instead of the end-user interface.
+- **Connected Components**: Are connected components listed? Are the interface descriptions specific enough (concrete types, protocols, message formats) that a seam review could verify compatibility with the other side?
 - **Testability**: Does the test harness cover all critical paths? Any gaps in fault injection, oracle testing, or property-based coverage?
 - **Performance**: Are performance claims substantiated? Any obvious bottlenecks or scalability concerns?
 - **Security**: Any injection vectors, privilege escalation paths, or missing validation?

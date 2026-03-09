@@ -207,12 +207,26 @@ Present the final summary to the user (via `h2 send`):
 - Final corpus metrics (doc count, line count)
 - Recommendation: ready for implementation, or needs more work
 
+## Phase 4.5: Seam Review
+
+After plans are approved (Phase 4) but before decomposing into beads (Phase 5), run a seam review to verify that connected components agree on their shared interfaces.
+
+1. Assign an agent to run `plan-seam-review` across all approved plans in the batch
+2. The seam review compares the "Connected Components" sections of adjacent plans — do both sides describe the same interface at each boundary?
+3. If the seam review finds **P0/P1 interface mismatches** (e.g., plan A says it produces type X, plan B says it consumes type Y):
+   - The affected plans go back through a focused `plan-review` + `plan-incorporate` cycle on just the mismatched interfaces
+   - Only the seam-adjacent sections need re-review, not the entire doc
+   - Re-run `plan-seam-review` on the affected boundary after incorporation to confirm the mismatch is resolved
+4. P2/P3 seam findings are documented but do not block proceeding to beads
+
+This phase catches integration mismatches before implementation begins — far cheaper than discovering them during coding.
+
 ### Plan Doc Status State Machine
 
 For reference, the full lifecycle of a plan doc status:
 
 ```
-Draft → In Review → Approved → Implementation → Implementation Complete
+Draft → In Review → Approved → Seam Reviewed → Implementation → Implementation Complete
 ```
 
 | Status | Set By | Meaning |
@@ -220,6 +234,7 @@ Draft → In Review → Approved → Implementation → Implementation Complete
 | **Draft** | `plan-draft` | Initial writing complete |
 | **In Review** | `plan-orchestrate` Phase 3 | Review cycle in progress (may include round info, e.g., "In Review (R2)") |
 | **Approved** | `plan-orchestrate` Phase 4 | Review converged, all open questions resolved, `## Plan Review Signoff` appended |
+| **Seam Reviewed** | `plan-orchestrate` Phase 4.5 | Cross-plan interface compatibility verified via `plan-seam-review` |
 | **Implementation** | `plan-to-beads` | Implementation beads created, work in progress |
 | **Implementation Complete** | `plan-work-completion-signoff` | Code verified against plan, `## Completion Signoff` appended |
 
@@ -239,7 +254,8 @@ Epic: "Planning: {project-name}"
   ├── Task: "R1 Summarize" (plan-summarize)
   ├── Task: "R2 Review: 05a, 05b, ... (rotated)" (plan-review, batch)
   ├── ...
-  └── Task: "Planning Sign-Off"
+  ├── Task: "Planning Sign-Off"
+  └── Task: "Seam Review: {batch}" (plan-seam-review)
 ```
 
 Bead granularity:

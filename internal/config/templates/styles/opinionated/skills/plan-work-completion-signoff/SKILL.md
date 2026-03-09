@@ -124,7 +124,13 @@ For test harness docs, additionally verify:
 
 **Pay special attention to cross-component contracts.** Read the plan's dependency descriptions, sequence diagrams, and interface definitions. Then verify that the actual code's imports, function calls, and data flow match. A component that "works" but doesn't connect to the rest of the system as designed has a Contractual deviation.
 
-### Step 3: Run Verification Tests
+### Step 3: Run Acceptance Tests
+
+If the plan doc defines acceptance criteria, the verifying agent must run those scenarios against the real end-user interface (CLI, API, web UI — whatever the product exposes). Do not just check that acceptance test code exists; actually execute the scenarios and verify the expected outcomes.
+
+Acceptance test failures block Complete signoff just like test harness failures. A failing acceptance test is at minimum a Contractual-severity issue — the component does not work as specified from the user's perspective.
+
+### Step 4: Run Verification Tests
 
 Run the relevant test suite to confirm everything passes:
 ```bash
@@ -142,9 +148,9 @@ go test -race ./path/to/package/... -count=1
 - Test failure with wrong result → **Contractual** (behavior doesn't match spec)
 - Test failure with panic/crash → **Contractual** (code is broken)
 
-The verifying agent must report all test failures as deviations before proceeding to Step 4. Do NOT classify test failures as Cosmetic or Structural — a test failure is always externally observable and always affects correctness.
+The verifying agent must report all test failures as deviations before proceeding to Step 5. Do NOT classify test failures as Cosmetic or Structural — a test failure is always externally observable and always affects correctness.
 
-### Step 4: Determine Status and Add Signoff
+### Step 5: Determine Status and Add Signoff
 
 Use the highest-severity deviation to determine the status:
 
@@ -171,6 +177,7 @@ Use the highest-severity deviation to determine the status:
 - **Commit**: {HEAD commit hash}
 - **Verified by**: {agent-name}
 - **Test verification**: `{test command}` — PASS
+- **Acceptance tests**: PASS ({N} scenarios) or N/A (no acceptance criteria in plan)
 - **Deviations from plan**:
   - [Cosmetic] {description, or "None"}
 - **Structural deviations resolved**: {count resolved, or "None found"}
@@ -220,7 +227,7 @@ Report all Contractual and Missing deviations to the orchestrating agent via `h2
 - Which components are affected
 - Suggested bead description for follow-up work
 
-### Step 5: Commit and Report
+### Step 6: Commit and Report
 
 1. Commit the updated plan docs: `git add docs/plans/ && git commit -m "docs: add completion signoff for {doc-names}"`
 2. Push to the working branch

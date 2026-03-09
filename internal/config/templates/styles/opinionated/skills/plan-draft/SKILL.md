@@ -32,6 +32,8 @@ Write `docs/plans/$0.md` following project conventions:
 - API/interface definitions (fully specified, not hand-waved)
 - Major types, structs, components with properties and key methods
 - Detailed design for all non-trivial algorithms and protocols
+- Connected Components — list which other components this plan connects to (its seams), with the interface at each boundary (function signatures, wire protocols, shared types, message formats)
+- Acceptance Criteria — 3-8 end-user-facing scenarios that prove the component works in the real system, not just in isolation. Each scenario must cross at least one component boundary. Format: scenario name, steps using the end-user interface (CLI, API, web UI, mobile — whatever the product exposes), expected outcome. These are NOT internal API tests; they verify behavior as a user would experience it.
 - Testing section (unit, component, integration strategy)
 - URP (Unreasonably Robust Programming) section — what would we build with unlimited budget?
 - Extreme Optimization section — SIMD, lock-free, zero-copy opportunities
