@@ -389,12 +389,12 @@ func TestScheduleEngine_EnvVarsSet(t *testing.T) {
 
 func TestEvalConditionMode(t *testing.T) {
 	tests := []struct {
-		name        string
-		mode        ConditionMode
-		condPass    bool
-		noCond      bool
-		wantRun     bool
-		wantRemove  bool
+		name       string
+		mode       ConditionMode
+		condPass   bool
+		noCond     bool
+		wantRun    bool
+		wantRemove bool
 	}{
 		{"RunIf pass", RunIf, true, false, true, false},
 		{"RunIf fail", RunIf, false, false, false, false},

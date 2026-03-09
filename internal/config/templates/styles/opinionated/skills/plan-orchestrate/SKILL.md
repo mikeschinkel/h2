@@ -240,7 +240,7 @@ The guide is a living document — update it incrementally as new invariants are
 For reference, the full lifecycle of a plan doc status:
 
 ```
-Draft → In Review → Approved → Seam Reviewed → Implementation → Implementation Complete
+Draft → In Review → Approved → Seam Reviewed → [Implementation Guide generated] → Implementation → Implementation Complete
 ```
 
 | Status | Set By | Meaning |
@@ -249,8 +249,7 @@ Draft → In Review → Approved → Seam Reviewed → Implementation → Implem
 | **In Review** | `plan-orchestrate` Phase 3 | Review cycle in progress (may include round info, e.g., "In Review (R2)") |
 | **Approved** | `plan-orchestrate` Phase 4 | Review converged, all open questions resolved, `## Plan Review Signoff` appended |
 | **Seam Reviewed** | `plan-orchestrate` Phase 4.5 | Cross-plan interface compatibility verified via `plan-seam-review` |
-| **Implementation Guide** | `plan-orchestrate` Phase 4.75 | `00-implementation-guide.md` generated/updated with cross-cutting contracts and pitfalls |
-| **Implementation** | `plan-to-beads` | Implementation beads created, work in progress |
+| **Implementation** | `plan-to-beads` | Implementation beads created, work in progress (note: `00-implementation-guide.md` must be generated as a corpus-level milestone between Seam Reviewed and Implementation — see Phase 4.75) |
 | **Implementation Complete** | `plan-work-completion-signoff` | Code verified against plan, `## Completion Signoff` appended |
 
 ## Beads Integration

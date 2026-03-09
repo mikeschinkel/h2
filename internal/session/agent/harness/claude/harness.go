@@ -232,7 +232,6 @@ func (h *ClaudeCodeHarness) OtelPort() int {
 	return 0
 }
 
-
 func resolveSessionDir(agentName, sessionID string) string {
 	if agentName != "" {
 		return config.SessionDir(agentName)

@@ -24,7 +24,7 @@ Read reviewed plan docs and decompose them into implementation beads (epics + ta
 1. Do NOT create beads smaller than ~200 lines of implementation code. If a piece is too small, merge it with a related piece.
 2. Do NOT split unit/integration tests into separate beads from their implementation. Tests go in the same bead as the code they test.
 3. Do NOT auto-assign beads to agents. All beads are created unassigned — the concierge/scheduler assigns them.
-4. Do NOT create beads for plan docs that haven't completed their review cycle. Check for a clean review round (0 findings) or "Approved" verdict before proceeding.
+4. Do NOT create beads for plan docs that haven't completed their full review cycle including seam review. Check that docs are in "Seam Reviewed" status (not just "Approved") before proceeding. If seam review has completed but the Implementation Guide (`docs/plans/00-implementation-guide.md`) does not yet exist, flag this to the orchestrator — the guide should be generated (Phase 4.75 in plan-orchestrate) before bead creation proceeds.
 5. **NEVER start implementation work when running this skill.** This skill creates beads only. The scheduler/concierge kicks off implementation as a separate step after reviewing and confirming the bead structure.
 
 ## Phase 1: Read & Catalog
@@ -202,12 +202,14 @@ References:
 - Depends on: {what this builds on}
 ```
 
-Every bead description must include a reference to the Implementation Guide as required reading:
+If `docs/plans/00-implementation-guide.md` exists, every bead description must include a reference to it as required reading:
 ```
 Required reading: docs/plans/00-implementation-guide.md
 ```
 
-When creating beads, check the Implementation Guide's Interface Contracts and Common Pitfalls sections for anything relevant to the specific bead. If a bead touches a seam listed in the guide's Seam Reference Table, or involves a pattern flagged in Common Pitfalls, note it explicitly in the bead description (e.g., "See Implementation Guide §Common Pitfalls: page cache init must complete before WAL recovery").
+When creating beads and the Implementation Guide exists, check its Interface Contracts and Common Pitfalls sections for anything relevant to the specific bead. If a bead touches a seam listed in the guide's Seam Reference Table, or involves a pattern flagged in Common Pitfalls, note it explicitly in the bead description (e.g., "See Implementation Guide §Common Pitfalls: page cache init must complete before WAL recovery").
+
+If the Implementation Guide does not exist and the project has completed seam review, flag this to the orchestrator — the guide should be generated (Phase 4.75 in plan-orchestrate) before bead creation proceeds. If the project has not gone through seam review (e.g., older plans predating this workflow), proceed without the guide reference.
 
 Descriptions should be detailed enough that an agent unfamiliar with the project can read the plan doc sections and implement the task, but should not duplicate the plan doc content — reference sections instead.
 

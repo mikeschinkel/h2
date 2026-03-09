@@ -377,7 +377,7 @@ func TestRotate_NoHarnessConfigPrefix(t *testing.T) {
 		HarnessType: "claude_code",
 		Profile:     "default",
 		Command:     "claude",
-		CWD:        "/tmp",
+		CWD:         "/tmp",
 		StartedAt:   "2024-01-01T00:00:00Z",
 	})
 
