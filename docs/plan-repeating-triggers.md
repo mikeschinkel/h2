@@ -9,7 +9,7 @@
 
 Extend the trigger system to support repeating triggers — triggers that fire more than once. Currently triggers are strictly one-shot: they fire once and are removed. This plan adds three new fields to the Trigger struct that control trigger lifecycle:
 
-1. **MaxFirings** — maximum number of times the trigger can fire (0 = unlimited, 1 = one-shot default)
+1. **MaxFirings** — maximum number of times the trigger can fire (−1 = unlimited, 0/1 = one-shot default)
 2. **ExpiresAt** — RFC 3339 timestamp after which the trigger is auto-removed regardless of fire count
 3. **Cooldown** — minimum duration between firings to prevent rapid re-fire on repeated state transitions
 
@@ -95,7 +95,7 @@ type Trigger struct {
     Action Action
 
     // Lifecycle control (new fields).
-    MaxFirings int           // 0 = unlimited, 1 = one-shot (default), N = fire N times
+    MaxFirings int           // -1 = unlimited, 0 = default (one-shot), N > 0 = fire N times
     ExpiresAt  time.Time     // zero value = no expiry
     Cooldown   time.Duration // zero value = no cooldown
 
@@ -112,7 +112,7 @@ type Trigger struct {
 ```go
 type TriggerSpec struct {
     // ... existing fields ...
-    MaxFirings int    `json:"max_firings,omitempty"` // 0=unlimited, 1=one-shot (default)
+    MaxFirings int    `json:"max_firings,omitempty"` // -1=unlimited, 0=default (one-shot)
     ExpiresAt  string `json:"expires_at,omitempty"`  // RFC 3339 timestamp
     Cooldown   string `json:"cooldown,omitempty"`    // Go duration string (e.g. "5m", "30s")
 
@@ -203,7 +203,7 @@ func (te *TriggerEngine) evalAndFire(ctx context.Context, t *Trigger, evt monito
     _, existed := te.triggers[t.ID]
     if !existed {
         te.mu.Unlock()
-        return // consumed by another goroutine
+        return // trigger was already consumed by concurrent evalAndFire or reaped by processEvent
     }
 
     t.FireCount++
@@ -259,22 +259,33 @@ func (te *TriggerEngine) processEvent(ctx context.Context, evt monitor.AgentEven
 `triggerFromSpec` and `specFromTrigger` must map the new fields:
 
 ```go
-func triggerFromSpec(s *message.TriggerSpec) *automation.Trigger {
+func triggerFromSpec(s *message.TriggerSpec) (*automation.Trigger, error) {
     t := &automation.Trigger{
         // ... existing fields ...
         MaxFirings: s.MaxFirings,
     }
+    // Validate MaxFirings range.
+    if t.MaxFirings < -1 {
+        return nil, fmt.Errorf("max_firings must be >= -1, got %d", t.MaxFirings)
+    }
     if s.ExpiresAt != "" {
-        if parsed, err := time.Parse(time.RFC3339, s.ExpiresAt); err == nil {
-            t.ExpiresAt = parsed
+        parsed, err := time.Parse(time.RFC3339, s.ExpiresAt)
+        if err != nil {
+            return nil, fmt.Errorf("parse expires_at %q: %w", s.ExpiresAt, err)
         }
+        t.ExpiresAt = parsed
     }
     if s.Cooldown != "" {
-        if parsed, err := time.ParseDuration(s.Cooldown); err == nil {
-            t.Cooldown = parsed
+        parsed, err := time.ParseDuration(s.Cooldown)
+        if err != nil {
+            return nil, fmt.Errorf("parse cooldown %q: %w", s.Cooldown, err)
         }
+        if parsed < 0 {
+            return nil, fmt.Errorf("cooldown must be non-negative, got %s", parsed)
+        }
+        t.Cooldown = parsed
     }
-    return t
+    return t, nil
 }
 
 func specFromTrigger(t *automation.Trigger) *message.TriggerSpec {
@@ -296,9 +307,9 @@ func specFromTrigger(t *automation.Trigger) *message.TriggerSpec {
 }
 ```
 
-### Role YAML Loading (daemon.go)
+### Relative ExpiresAt Resolution (automation.go)
 
-`loadRoleAutomations` must map the new fields, including resolving relative `ExpiresAt`:
+`resolveExpiresAt` is a pure time-parsing utility placed in `internal/automation/automation.go` so it can be shared by both `loadRoleAutomations` (daemon.go) and the CLI `--expires-at` flag handler. `loadRoleAutomations` calls it when mapping role YAML fields:
 
 ```go
 func resolveExpiresAt(raw string) (time.Time, error) {
@@ -323,12 +334,12 @@ func resolveExpiresAt(raw string) (time.Time, error) {
 `newTriggerAddCmd` gains three new flags:
 
 ```
---max-firings int     Max times to fire (0=unlimited, default 1=one-shot)
+--max-firings int     Max times to fire (-1=unlimited, default 1=one-shot)
 --expires-at string   Expiry timestamp (RFC 3339) or relative (+1h, +30m)
 --cooldown string     Minimum duration between firings (e.g. 5m, 30s)
 ```
 
-The `trigger list` output table gains columns: `MAX_FIRINGS`, `FIRE_COUNT`, `COOLDOWN`.
+The `trigger list` output table gains columns: `MAX_FIRINGS`, `FIRE_COUNT`, `COOLDOWN`. Display `-` for unlimited MaxFirings (-1) and for zero-value Cooldown.
 
 ### Expects-Response Compatibility
 
@@ -350,8 +361,8 @@ Changes are confined to existing files:
 
 ```
 internal/automation/
-    automation.go       # Trigger struct: add MaxFirings, ExpiresAt, Cooldown, FireCount, LastFiredAt
-    trigger.go          # evalAndFire: lifecycle logic; processEvent: expiry reaping
+    automation.go       # Trigger struct: add MaxFirings, ExpiresAt, Cooldown, FireCount, LastFiredAt; resolveExpiresAt()
+    trigger.go          # evalAndFire: lifecycle logic; processEvent: expiry reaping; Clock interface
     trigger_test.go     # New tests for repeating, cooldown, expiry
 
 internal/session/
@@ -372,15 +383,15 @@ internal/cmd/
 
 1. **One-shot default preserved**: `h2 trigger add agent --event state_change --state idle --message "nudge"` fires once on idle and is removed. Identical to current behavior.
 
-2. **Unlimited repeating trigger**: `h2 trigger add agent --event state_change --state idle --message "nudge" --max-firings 0 --cooldown 5m` fires every time the agent goes idle with at least 5 minutes between firings. After going idle 3 times (with >5m gaps), the trigger has fired 3 times and is still registered.
+2. **Unlimited repeating trigger**: `h2 trigger add agent --event state_change --state idle --message "nudge" --max-firings -1 --cooldown 5m` fires every time the agent goes idle with at least 5 minutes between firings. After going idle 3 times (with >5m gaps), the trigger has fired 3 times and is still registered.
 
 3. **Fixed-count trigger**: `h2 trigger add agent --event state_change --sub-state usage_limit --exec "h2 rotate agent next" --max-firings 3` fires up to 3 times on usage_limit, then is auto-removed. `h2 trigger list agent` shows fire_count incrementing.
 
-4. **Expiry-based removal**: `h2 trigger add agent --event state_change --state idle --message "watch" --max-firings 0 --expires-at "+10m"` fires on idle transitions for 10 minutes, then is auto-removed even if it hasn't fired yet.
+4. **Expiry-based removal**: `h2 trigger add agent --event state_change --state idle --message "watch" --max-firings -1 --expires-at "+10m"` fires on idle transitions for 10 minutes, then is auto-removed even if it hasn't fired yet.
 
 5. **Cooldown enforcement**: Agent goes idle→active→idle within 30 seconds. A trigger with `--cooldown 5m` fires on the first idle but not the second.
 
-6. **Role YAML repeating trigger**: A role YAML with `max_firings: 0`, `cooldown: "2m"`, `expires_at: "+1h"` on a trigger correctly loads and fires repeatedly with cooldown enforcement.
+6. **Role YAML repeating trigger**: A role YAML with `max_firings: -1`, `cooldown: "2m"`, `expires_at: "+1h"` on a trigger correctly loads and fires repeatedly with cooldown enforcement.
 
 7. **Expects-response unchanged**: `h2 send --expects-response target "msg"` creates a one-shot trigger (MaxFirings=1 default), fires once at idle, and is removed.
 
@@ -400,6 +411,7 @@ internal/cmd/
 - `TestTriggerEngine_CooldownAndCondition` — Cooldown + condition, verify cooldown checked before condition eval
 - `TestTriggerEngine_FireCountTracking` — Verify FireCount increments correctly, visible in List()
 - `TestTriggerEngine_LastFiredAtTracking` — Verify LastFiredAt updated on each firing
+- `TestTriggerEngine_ConcurrentAddDuringProcessEvent` — Add triggers while processEvent iterates; run with `-race`
 
 ### Integration Tests (existing test patterns)
 
@@ -418,6 +430,7 @@ internal/cmd/
 
 ## URP (Unreasonably Robust Programming)
 
+- **Injectable clock for deterministic testing**: `TriggerEngine` takes an optional `Clock` interface (`Now() time.Time`) defaulting to `time.Now`. Tests inject a controllable clock to make cooldown and expiry tests deterministic (no sleep, no flakiness). This also enables the deterministic simulation tests described in the test harness doc.
 - **Cooldown clock skew protection**: Use monotonic clock (`time.Since` uses monotonic) for cooldown comparisons, not wall-clock subtraction. This prevents cooldown bypass if system clock jumps backward.
 - **Atomic fire-count + removal**: The `FireCount++` and potential `delete` happen under the same lock acquisition, preventing TOCTOU races between concurrent events.
 - **Expiry reaping on every event**: Don't rely only on the matching trigger being checked — reap all expired triggers during every `processEvent` call to prevent unbounded accumulation.
@@ -429,3 +442,16 @@ Not applicable for this change. The trigger map is typically small (<100 entries
 ## Alien Artifacts
 
 Not applicable. The lifecycle logic is straightforward countdown + timestamp comparison.
+
+## Review Disposition
+
+| # | Reviewer | Severity | Summary | Disposition | Notes |
+|---|----------|----------|---------|-------------|-------|
+| 1 | h2-coder-1 | P1 | MaxFirings sentinel value contradictions | Incorporated | All occurrences updated to use -1=unlimited, 0=default convention |
+| 2 | h2-coder-1 | P1 | processEvent races with evalAndFire | Incorporated | Added comment clarifying concurrent-reap/fire safety |
+| 3 | h2-coder-1 | P2 | triggerFromSpec silently swallows parse errors | Incorporated | Now returns error on parse failure |
+| 4 | h2-coder-1 | P2 | No input validation for MaxFirings and Cooldown ranges | Incorporated | Validation added in triggerFromSpec |
+| 5 | h2-coder-1 | P2 | Test harness assumes controllable clock but plan has none | Incorporated | Added Clock interface to URP section and package structure |
+| 6 | h2-coder-1 | P2 | specFromTrigger display format for zero cooldown | Incorporated | Specified "-" display for zero-value fields in trigger list |
+| 7 | h2-coder-1 | P3 | resolveExpiresAt location | Incorporated | Moved to automation.go, shared by daemon and CLI |
+| 8 | h2-coder-1 | P3 | Missing concurrent Add test | Incorporated | Added TestTriggerEngine_ConcurrentAddDuringProcessEvent |
