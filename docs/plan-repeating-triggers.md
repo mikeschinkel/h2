@@ -78,7 +78,7 @@ stateDiagram-v2
 
 ```go
 // Trigger fires when an event matches and the optional condition passes.
-// By default triggers are one-shot (MaxFirings=1). Set MaxFirings=0 for
+// By default triggers are one-shot (MaxFirings=1). Set MaxFirings=-1 for
 // unlimited firings, or MaxFirings=N for a fixed count.
 type Trigger struct {
     ID   string
@@ -97,12 +97,22 @@ type Trigger struct {
     // Lifecycle control (new fields).
     MaxFirings int           // -1 = unlimited, 0 = default (one-shot), N > 0 = fire N times
     ExpiresAt  time.Time     // zero value = no expiry
-    Cooldown   time.Duration // zero value = no cooldown
+    Cooldown   time.Duration // zero value = no cooldown; trigger eligible again at exactly Cooldown elapsed (>= not >)
 
     // Runtime tracking (internal, not user-configured).
     FireCount   int       // number of times this trigger has fired
     LastFiredAt time.Time // timestamp of last firing (for cooldown enforcement)
 }
+
+// Clock abstracts time for deterministic testing. Default: time.Now.
+type Clock interface {
+    Now() time.Time
+}
+
+// realClock is the default Clock using time.Now.
+type realClock struct{}
+func (realClock) Now() time.Time { return time.Now() }
+
 ```
 
 ### Wire Format Changes
@@ -168,27 +178,52 @@ To get unlimited firings, callers must explicitly set `MaxFirings` to `-1` (sent
 The core change is in `evalAndFire`. Currently it unconditionally removes the trigger after condition passes. The new logic:
 
 ```go
-func (te *TriggerEngine) evalAndFire(ctx context.Context, t *Trigger, evt monitor.AgentEvent) {
-    now := time.Now()
+// TriggerEngine constructor accepts an optional Clock (nil defaults to realClock).
+func NewTriggerEngine(runner *ActionRunner, logger *slog.Logger, clock Clock) *TriggerEngine {
+    if clock == nil {
+        clock = realClock{}
+    }
+    return &TriggerEngine{
+        triggers: make(map[string]*Trigger),
+        runner:   runner,
+        logger:   logger,
+        clock:    clock,
+    }
+}
 
-    // Check expiry.
+func (te *TriggerEngine) evalAndFire(ctx context.Context, t *Trigger, evt monitor.AgentEvent) {
+    now := te.clock.Now()
+
+    // Pre-check: acquire lock to read mutable fields (LastFiredAt) and check
+    // expiry/cooldown atomically. This prevents a data race where concurrent
+    // evalAndFire calls both read LastFiredAt before either writes it.
+    te.mu.Lock()
+    _, existed := te.triggers[t.ID]
+    if !existed {
+        te.mu.Unlock()
+        return // trigger was already consumed by concurrent evalAndFire or reaped by processEvent
+    }
+
+    // Check expiry under lock.
     if !t.ExpiresAt.IsZero() && now.After(t.ExpiresAt) {
-        te.mu.Lock()
         delete(te.triggers, t.ID)
         te.mu.Unlock()
         te.logger.Info("trigger expired", "trigger_id", t.ID)
         return
     }
 
-    // Check cooldown.
+    // Check cooldown under lock (reads LastFiredAt which is written under lock).
     if t.Cooldown > 0 && !t.LastFiredAt.IsZero() {
         if now.Sub(t.LastFiredAt) < t.Cooldown {
+            te.mu.Unlock()
             te.logger.Debug("trigger in cooldown", "trigger_id", t.ID,
                 "remaining", t.Cooldown-now.Sub(t.LastFiredAt))
             return
         }
     }
+    te.mu.Unlock()
 
+    // Condition evaluation happens outside the lock (may be slow/blocking).
     env := te.buildTriggerEnv(t, evt)
 
     condCtx, cancel := context.WithTimeout(ctx, DefaultConditionTimeout)
@@ -198,12 +233,14 @@ func (te *TriggerEngine) evalAndFire(ctx context.Context, t *Trigger, evt monito
         return
     }
 
-    // Update tracking and determine if trigger should be removed.
+    // Re-acquire lock to update tracking and determine removal.
+    // Must re-check existence since trigger may have been consumed/reaped
+    // while condition was evaluating.
     te.mu.Lock()
-    _, existed := te.triggers[t.ID]
+    _, existed = te.triggers[t.ID]
     if !existed {
         te.mu.Unlock()
-        return // trigger was already consumed by concurrent evalAndFire or reaped by processEvent
+        return // consumed/reaped during condition evaluation
     }
 
     t.FireCount++
@@ -233,7 +270,7 @@ In addition to per-trigger expiry checks in `evalAndFire`, the `processEvent` me
 
 ```go
 func (te *TriggerEngine) processEvent(ctx context.Context, evt monitor.AgentEvent) {
-    now := time.Now()
+    now := te.clock.Now()
     te.mu.Lock()
     var matched []*Trigger
     for id, t := range te.triggers {
@@ -254,9 +291,36 @@ func (te *TriggerEngine) processEvent(ctx context.Context, evt monitor.AgentEven
 }
 ```
 
-### Conversion Functions (listener.go)
+### List() Returns Value Copies (trigger.go)
 
-`triggerFromSpec` and `specFromTrigger` must map the new fields:
+With repeating triggers, `FireCount` and `LastFiredAt` are mutated by `evalAndFire` under the lock. `List()` must return value copies (not pointers to live structs) to prevent unsynchronized reads by callers:
+
+```go
+func (te *TriggerEngine) List() []Trigger {
+    te.mu.Lock()
+    defer te.mu.Unlock()
+    result := make([]Trigger, 0, len(te.triggers))
+    for _, t := range te.triggers {
+        result = append(result, *t) // value copy
+    }
+    return result
+}
+```
+
+### Conversion Functions and Call Site (listener.go)
+
+`triggerFromSpec` and `specFromTrigger` must map the new fields. `handleTriggerAdd` must handle the new error return:
+
+```go
+func (l *Listener) handleTriggerAdd(req *message.Request) *message.Response {
+    t, err := triggerFromSpec(req.Trigger)
+    if err != nil {
+        return &message.Response{OK: false, Error: err.Error()}
+    }
+    l.triggerEngine.Add(t)
+    return &message.Response{OK: true, TriggerID: t.ID}
+}
+```
 
 ```go
 func triggerFromSpec(s *message.TriggerSpec) (*automation.Trigger, error) {
@@ -272,6 +336,9 @@ func triggerFromSpec(s *message.TriggerSpec) (*automation.Trigger, error) {
         parsed, err := time.Parse(time.RFC3339, s.ExpiresAt)
         if err != nil {
             return nil, fmt.Errorf("parse expires_at %q: %w", s.ExpiresAt, err)
+        }
+        if parsed.Before(time.Now()) {
+            return nil, fmt.Errorf("expires_at %q is in the past", s.ExpiresAt)
         }
         t.ExpiresAt = parsed
     }
@@ -312,7 +379,11 @@ func specFromTrigger(t *automation.Trigger) *message.TriggerSpec {
 `resolveExpiresAt` is a pure time-parsing utility placed in `internal/automation/automation.go` so it can be shared by both `loadRoleAutomations` (daemon.go) and the CLI `--expires-at` flag handler. `loadRoleAutomations` calls it when mapping role YAML fields:
 
 ```go
-func resolveExpiresAt(raw string) (time.Time, error) {
+// resolveExpiresAt parses an ExpiresAt string. Accepts RFC 3339 absolute
+// timestamps or relative durations like "+1h". The `now` parameter is used
+// as the base for relative timestamps (pass clock.Now() for consistency
+// with the trigger engine's injectable clock).
+func resolveExpiresAt(raw string, now time.Time) (time.Time, error) {
     if raw == "" {
         return time.Time{}, nil
     }
@@ -322,7 +393,7 @@ func resolveExpiresAt(raw string) (time.Time, error) {
         if err != nil {
             return time.Time{}, fmt.Errorf("parse relative expires_at %q: %w", raw, err)
         }
-        return time.Now().Add(dur), nil
+        return now.Add(dur), nil
     }
     // Absolute RFC 3339.
     return time.Parse(time.RFC3339, raw)
@@ -443,7 +514,7 @@ Not applicable for this change. The trigger map is typically small (<100 entries
 
 Not applicable. The lifecycle logic is straightforward countdown + timestamp comparison.
 
-## Review Disposition
+## Round 1 Review Disposition
 
 | # | Reviewer | Severity | Summary | Disposition | Notes |
 |---|----------|----------|---------|-------------|-------|
@@ -455,3 +526,16 @@ Not applicable. The lifecycle logic is straightforward countdown + timestamp com
 | 6 | h2-coder-1 | P2 | specFromTrigger display format for zero cooldown | Incorporated | Specified "-" display for zero-value fields in trigger list |
 | 7 | h2-coder-1 | P3 | resolveExpiresAt location | Incorporated | Moved to automation.go, shared by daemon and CLI |
 | 8 | h2-coder-1 | P3 | Missing concurrent Add test | Incorporated | Added TestTriggerEngine_ConcurrentAddDuringProcessEvent |
+
+## Round 2 Review Disposition
+
+| # | Reviewer | Severity | Summary | Disposition | Notes |
+|---|----------|----------|---------|-------------|-------|
+| 1 | reviewer-leaf | P1 | Race on LastFiredAt reads outside lock | Incorporated | Moved cooldown/expiry checks inside lock in evalAndFire; double-check pattern with lock-release for condition eval |
+| 2 | reviewer-leaf | P1 | handleTriggerAdd ignores triggerFromSpec error | Incorporated | Added handleTriggerAdd code showing error check and socket error response |
+| 3 | reviewer-leaf | P2 | List() returns live pointers | Incorporated | Added List() section returning value copies |
+| 4 | reviewer-leaf | P2 | QA 2/3 use --max-firings 0 for unlimited | Incorporated | Fixed to --max-firings -1 in test harness doc |
+| 5 | reviewer-leaf | P2 | No ExpiresAt future validation | Incorporated | Added past-time rejection in triggerFromSpec |
+| 6 | reviewer-leaf | P2 | Clock interface not fully specified | Incorporated | Added Clock interface, realClock, NewTriggerEngine constructor, updated evalAndFire/processEvent to use te.clock.Now() |
+| 7 | reviewer-leaf | P3 | resolveExpiresAt uses time.Now() directly | Incorporated | Changed signature to accept now time.Time parameter |
+| 8 | reviewer-leaf | P3 | Cooldown boundary not documented | Incorporated | Added ">= not >" note to Cooldown field comment |

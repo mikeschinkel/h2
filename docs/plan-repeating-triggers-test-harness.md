@@ -132,7 +132,7 @@ Not applicable for this change. The trigger system executes shell commands that 
 
 ### QA 2: Cooldown Behavior Observation
 
-1. Register a trigger with `--max-firings 0 --cooldown 1m --event state_change --state idle --message "idle reminder"`
+1. Register a trigger with `--max-firings -1 --cooldown 1m --event state_change --state idle --message "idle reminder"`
 2. Make the agent go idle
 3. Observe the reminder fires
 4. Make the agent active, then idle again within 30s
@@ -142,7 +142,7 @@ Not applicable for this change. The trigger system executes shell commands that 
 
 ### QA 3: Expiry Behavior
 
-1. Register a trigger with `--max-firings 0 --expires-at "+2m" --event state_change --state idle --message "watch"`
+1. Register a trigger with `--max-firings -1 --expires-at "+2m" --event state_change --state idle --message "watch"`
 2. Make agent go idle — observe trigger fires
 3. Wait 2+ minutes
 4. Run `h2 trigger list` — verify trigger no longer present
