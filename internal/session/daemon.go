@@ -154,6 +154,7 @@ func RunDaemon(sessionDir string, rc *config.RuntimeConfig, resume bool) error {
 // loadRoleAutomations registers triggers and schedules from the RuntimeConfig
 // (originally defined in the role YAML). Called during daemon startup.
 func (d *Daemon) loadRoleAutomations(rc *config.RuntimeConfig) error {
+	now := time.Now()
 	for _, ts := range rc.Triggers {
 		t := &automation.Trigger{
 			ID:        ts.ID,
@@ -168,6 +169,24 @@ func (d *Daemon) loadRoleAutomations(rc *config.RuntimeConfig) error {
 				From:     ts.From,
 				Priority: ts.Priority,
 			},
+			MaxFirings: ts.MaxFirings,
+		}
+		if ts.ExpiresAt != "" {
+			parsed, err := automation.ResolveExpiresAt(ts.ExpiresAt, now)
+			if err != nil {
+				return fmt.Errorf("trigger %q: %w", ts.ID, err)
+			}
+			t.ExpiresAt = parsed
+		}
+		if ts.Cooldown != "" {
+			parsed, err := time.ParseDuration(ts.Cooldown)
+			if err != nil {
+				return fmt.Errorf("trigger %q: parse cooldown %q: %w", ts.ID, ts.Cooldown, err)
+			}
+			if parsed < 0 {
+				return fmt.Errorf("trigger %q: cooldown must be non-negative, got %s", ts.ID, parsed)
+			}
+			t.Cooldown = parsed
 		}
 		if !d.TriggerEngine.Add(t) {
 			return fmt.Errorf("duplicate trigger ID %q in role config", ts.ID)

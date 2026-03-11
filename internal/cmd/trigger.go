@@ -5,10 +5,12 @@ import (
 	"net"
 	"os"
 	"text/tabwriter"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"h2/internal/automation"
 	"h2/internal/session/message"
 	"h2/internal/socketdir"
 )
@@ -30,15 +32,18 @@ func newTriggerCmd() *cobra.Command {
 
 func newTriggerAddCmd() *cobra.Command {
 	var (
-		event     string
-		state     string
-		subState  string
-		condition string
-		execCmd   string
-		msg       string
-		from      string
-		priority  string
-		name      string
+		event      string
+		state      string
+		subState   string
+		condition  string
+		execCmd    string
+		msg        string
+		from       string
+		priority   string
+		name       string
+		maxFirings int
+		expiresAt  string
+		cooldown   string
 	)
 
 	cmd := &cobra.Command{
@@ -58,16 +63,31 @@ func newTriggerAddCmd() *cobra.Command {
 			id := uuid.New().String()[:8]
 
 			spec := &message.TriggerSpec{
-				ID:        id,
-				Name:      name,
-				Event:     event,
-				State:     state,
-				SubState:  subState,
-				Condition: condition,
-				Exec:      execCmd,
-				Message:   msg,
-				From:      from,
-				Priority:  priority,
+				ID:         id,
+				Name:       name,
+				Event:      event,
+				State:      state,
+				SubState:   subState,
+				Condition:  condition,
+				Exec:       execCmd,
+				Message:    msg,
+				From:       from,
+				Priority:   priority,
+				MaxFirings: maxFirings,
+				Cooldown:   cooldown,
+			}
+
+			// Handle relative ExpiresAt ("+1h") by resolving to absolute timestamp.
+			if expiresAt != "" {
+				if len(expiresAt) > 0 && expiresAt[0] == '+' {
+					resolved, err := automation.ResolveExpiresAt(expiresAt, time.Now())
+					if err != nil {
+						return fmt.Errorf("invalid --expires-at: %w", err)
+					}
+					spec.ExpiresAt = resolved.Format(time.RFC3339)
+				} else {
+					spec.ExpiresAt = expiresAt
+				}
 			}
 
 			resp, err := sendSocketRequest(agentName, &message.Request{
@@ -96,6 +116,9 @@ func newTriggerAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&from, "from", "", "Sender identity for message action (default: h2-trigger)")
 	cmd.Flags().StringVar(&priority, "priority", "", "Message priority (interrupt|normal|idle-first|idle)")
 	cmd.Flags().StringVar(&name, "name", "", "Human-readable trigger name")
+	cmd.Flags().IntVar(&maxFirings, "max-firings", 0, "Max times to fire (-1=unlimited, default 1=one-shot)")
+	cmd.Flags().StringVar(&expiresAt, "expires-at", "", "Expiry timestamp (RFC 3339) or relative (+1h, +30m)")
+	cmd.Flags().StringVar(&cooldown, "cooldown", "", "Minimum duration between firings (e.g. 5m, 30s)")
 	_ = cmd.MarkFlagRequired("event")
 
 	return cmd
@@ -123,14 +146,24 @@ func newTriggerListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tNAME\tEVENT\tSTATE\tSUBSTATE\tACTION")
+			fmt.Fprintln(w, "ID\tNAME\tEVENT\tSTATE\tSUBSTATE\tACTION\tMAX_FIRINGS\tFIRE_COUNT\tCOOLDOWN")
 			for _, t := range resp.Triggers {
 				action := "exec"
 				if t.Message != "" {
 					action = "message"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-					t.ID, t.Name, t.Event, t.State, t.SubState, action)
+				maxF := "1" // default one-shot
+				if t.MaxFirings == -1 {
+					maxF = "-"
+				} else if t.MaxFirings > 0 {
+					maxF = fmt.Sprintf("%d", t.MaxFirings)
+				}
+				cd := "-"
+				if t.Cooldown != "" {
+					cd = t.Cooldown
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n",
+					t.ID, t.Name, t.Event, t.State, t.SubState, action, maxF, t.FireCount, cd)
 			}
 			w.Flush()
 			return nil

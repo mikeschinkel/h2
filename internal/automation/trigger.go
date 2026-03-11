@@ -130,11 +130,13 @@ func (te *TriggerEngine) evalAndFire(ctx context.Context, t *Trigger, evt monito
 	// Pre-check: acquire lock to read mutable fields (LastFiredAt) and check
 	// expiry/cooldown atomically. This prevents a data race where concurrent
 	// evalAndFire calls both read LastFiredAt before either writes it.
+	// Use pointer identity (cur == t) not just ID presence, because a trigger
+	// could be removed and a new one added with the same ID between unlocks.
 	te.mu.Lock()
-	_, existed := te.triggers[t.ID]
-	if !existed {
+	cur := te.triggers[t.ID]
+	if cur != t {
 		te.mu.Unlock()
-		return // trigger was already consumed by concurrent evalAndFire or reaped by processEvent
+		return // trigger was replaced, consumed, or reaped
 	}
 
 	// Check expiry under lock.
@@ -169,13 +171,13 @@ func (te *TriggerEngine) evalAndFire(ctx context.Context, t *Trigger, evt monito
 	}
 
 	// Re-acquire lock to update tracking and determine removal.
-	// Must re-check existence since trigger may have been consumed/reaped
+	// Must re-check pointer identity since trigger may have been replaced/reaped
 	// while condition was evaluating.
 	te.mu.Lock()
-	_, existed = te.triggers[t.ID]
-	if !existed {
+	cur = te.triggers[t.ID]
+	if cur != t {
 		te.mu.Unlock()
-		return // consumed/reaped during condition evaluation
+		return // replaced/reaped during condition evaluation
 	}
 
 	t.FireCount++

@@ -39,6 +39,11 @@ type TriggerYAMLSpec struct {
 	Message   string `yaml:"message,omitempty"`
 	From      string `yaml:"from,omitempty"`
 	Priority  string `yaml:"priority,omitempty"`
+
+	// Lifecycle control (repeating triggers).
+	MaxFirings int    `yaml:"max_firings,omitempty"` // -1=unlimited, 0=default (one-shot)
+	ExpiresAt  string `yaml:"expires_at,omitempty"`  // RFC 3339 or relative (e.g. "+1h")
+	Cooldown   string `yaml:"cooldown,omitempty"`    // Go duration string
 }
 
 // ScheduleYAMLSpec defines a schedule in role YAML.

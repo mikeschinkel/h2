@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"runtime/debug"
+	"time"
 
 	"h2/internal/automation"
 	"h2/internal/session/message"
@@ -201,7 +202,11 @@ func (d *Daemon) handleTriggerAdd(conn net.Conn, req *message.Request) {
 		return
 	}
 
-	t := triggerFromSpec(req.Trigger)
+	t, err := triggerFromSpec(req.Trigger)
+	if err != nil {
+		message.SendResponse(conn, &message.Response{Error: err.Error()})
+		return
+	}
 	if !d.TriggerEngine.Add(t) {
 		message.SendResponse(conn, &message.Response{
 			Error: fmt.Sprintf("trigger ID %q already exists", t.ID),
@@ -309,8 +314,8 @@ func (d *Daemon) handleScheduleRemove(conn net.Conn, req *message.Request) {
 
 // Conversion helpers between wire specs and automation types.
 
-func triggerFromSpec(s *message.TriggerSpec) *automation.Trigger {
-	return &automation.Trigger{
+func triggerFromSpec(s *message.TriggerSpec) (*automation.Trigger, error) {
+	t := &automation.Trigger{
 		ID:        s.ID,
 		Name:      s.Name,
 		Event:     s.Event,
@@ -323,22 +328,60 @@ func triggerFromSpec(s *message.TriggerSpec) *automation.Trigger {
 			From:     s.From,
 			Priority: s.Priority,
 		},
+		MaxFirings: s.MaxFirings,
 	}
+	// Validate MaxFirings range.
+	if t.MaxFirings < -1 {
+		return nil, fmt.Errorf("max_firings must be >= -1, got %d", t.MaxFirings)
+	}
+	if s.ExpiresAt != "" {
+		parsed, err := time.Parse(time.RFC3339, s.ExpiresAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse expires_at %q: %w", s.ExpiresAt, err)
+		}
+		if parsed.Before(time.Now()) {
+			return nil, fmt.Errorf("expires_at %q is in the past", s.ExpiresAt)
+		}
+		t.ExpiresAt = parsed
+	}
+	if s.Cooldown != "" {
+		parsed, err := time.ParseDuration(s.Cooldown)
+		if err != nil {
+			return nil, fmt.Errorf("parse cooldown %q: %w", s.Cooldown, err)
+		}
+		if parsed < 0 {
+			return nil, fmt.Errorf("cooldown must be non-negative, got %s", parsed)
+		}
+		t.Cooldown = parsed
+	}
+	return t, nil
 }
 
 func specFromTrigger(t *automation.Trigger) *message.TriggerSpec {
-	return &message.TriggerSpec{
-		ID:        t.ID,
-		Name:      t.Name,
-		Event:     t.Event,
-		State:     t.State,
-		SubState:  t.SubState,
-		Condition: t.Condition,
-		Exec:      t.Action.Exec,
-		Message:   t.Action.Message,
-		From:      t.Action.From,
-		Priority:  t.Action.Priority,
+	s := &message.TriggerSpec{
+		ID:         t.ID,
+		Name:       t.Name,
+		Event:      t.Event,
+		State:      t.State,
+		SubState:   t.SubState,
+		Condition:  t.Condition,
+		Exec:       t.Action.Exec,
+		Message:    t.Action.Message,
+		From:       t.Action.From,
+		Priority:   t.Action.Priority,
+		MaxFirings: t.MaxFirings,
+		FireCount:  t.FireCount,
 	}
+	if !t.ExpiresAt.IsZero() {
+		s.ExpiresAt = t.ExpiresAt.Format(time.RFC3339)
+	}
+	if t.Cooldown > 0 {
+		s.Cooldown = t.Cooldown.String()
+	}
+	if !t.LastFiredAt.IsZero() {
+		s.LastFiredAt = t.LastFiredAt.Format(time.RFC3339)
+	}
+	return s
 }
 
 func scheduleFromSpec(s *message.ScheduleSpec) *automation.Schedule {

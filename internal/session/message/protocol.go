@@ -55,6 +55,15 @@ type TriggerSpec struct {
 	Message   string `json:"message,omitempty"`
 	From      string `json:"from,omitempty"`
 	Priority  string `json:"priority,omitempty"`
+
+	// Lifecycle control (repeating triggers).
+	MaxFirings int    `json:"max_firings,omitempty"` // -1=unlimited, 0=default (one-shot)
+	ExpiresAt  string `json:"expires_at,omitempty"`  // RFC 3339 timestamp
+	Cooldown   string `json:"cooldown,omitempty"`    // Go duration string (e.g. "5m", "30s")
+
+	// Read-only in responses (trigger_list).
+	FireCount   int    `json:"fire_count,omitempty"`
+	LastFiredAt string `json:"last_fired_at,omitempty"` // RFC 3339
 }
 
 // ScheduleSpec is the wire representation of a schedule for socket requests/responses.
