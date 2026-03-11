@@ -78,7 +78,7 @@ func TestSendCmd_SelfSendAllowedWithFlag(t *testing.T) {
 	}
 }
 
-func TestSend_RespondsTo_NoBody(t *testing.T) {
+func TestSend_Closes_NoBody(t *testing.T) {
 	tmpDir := t.TempDir()
 	os.MkdirAll(filepath.Join(tmpDir, ".h2", "sockets"), 0o700)
 	t.Setenv("HOME", tmpDir)
@@ -86,17 +86,17 @@ func TestSend_RespondsTo_NoBody(t *testing.T) {
 	t.Setenv("H2_ACTOR", "test-agent")
 
 	cmd := newSendCmd()
-	cmd.SetArgs([]string{"--responds-to", "a1b2c3d4"})
+	cmd.SetArgs([]string{"--closes", "a1b2c3d4"})
 
 	err := cmd.Execute()
 	// Should succeed (close-only) but warn about missing socket.
 	// The trigger_remove is best-effort, so no error returned.
 	if err != nil {
-		t.Fatalf("responds-to close-only should not error, got: %v", err)
+		t.Fatalf("closes should not error should not error, got: %v", err)
 	}
 }
 
-func TestSend_RespondsTo_BodyNoTarget(t *testing.T) {
+func TestSend_Closes_BodyNoTarget(t *testing.T) {
 	tmpDir := t.TempDir()
 	os.MkdirAll(filepath.Join(tmpDir, ".h2", "sockets"), 0o700)
 	t.Setenv("HOME", tmpDir)
@@ -104,14 +104,14 @@ func TestSend_RespondsTo_BodyNoTarget(t *testing.T) {
 
 	cmd := newSendCmd()
 	// Body but no target — should error.
-	cmd.SetArgs([]string{"--responds-to", "a1b2c3d4", "--file", "/dev/null"})
+	cmd.SetArgs([]string{"--closes", "a1b2c3d4", "--file", "/dev/null"})
 
 	// Write a minimal file for --file.
 	tmpFile := filepath.Join(tmpDir, "body.txt")
 	os.WriteFile(tmpFile, []byte("response body"), 0o644)
 
 	cmd2 := newSendCmd()
-	cmd2.SetArgs([]string{"--responds-to", "a1b2c3d4", "--file", tmpFile})
+	cmd2.SetArgs([]string{"--closes", "a1b2c3d4", "--file", tmpFile})
 	err := cmd2.Execute()
 	if err == nil {
 		t.Fatal("expected error when body present without target")

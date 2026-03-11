@@ -22,17 +22,17 @@ func newSendCmd() *cobra.Command {
 	var respondsTo string
 
 	cmd := &cobra.Command{
-		Use:   "send [<name>] [--priority=normal] [--file=path] [--raw] [--expects-response] [--responds-to=<id>] [message...]",
+		Use:   "send [<name>] [--priority=normal] [--file=path] [--raw] [--expects-response] [--closes=<id>] [message...]",
 		Short: "Send a message to an agent",
 		Long: `Send a message to a running agent. The message body can be provided as arguments or read from a file.
-With --raw, the body is sent directly to the agent's PTY without the [h2 message from: ...] prefix.
+With --raw, the body is sent directly to the agent's PTY without the header prefix.
 With --expects-response, a reminder trigger is registered on the recipient that fires at idle.
-With --responds-to <id>, the trigger is removed from your own daemon (and optionally a response is sent).`,
+With --closes <id>, the reminder trigger is removed from your own daemon (and optionally a response is sent).`,
 		Args: cobra.MinimumNArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// --responds-to mode: target and body are both optional.
+			// --closes mode: target and body are both optional.
 			if respondsTo != "" {
-				return handleRespondsTo(respondsTo, args, file, priority, allowSelf)
+				return handleCloses(respondsTo, args, file, priority, allowSelf)
 			}
 
 			// Normal send or --expects-response: target is required.
@@ -132,9 +132,9 @@ With --responds-to <id>, the trigger is removed from your own daemon (and option
 	cmd.Flags().StringVar(&priority, "priority", "normal", "Message priority (interrupt|normal|idle-first|idle)")
 	cmd.Flags().StringVar(&file, "file", "", "Read message body from file")
 	cmd.Flags().BoolVar(&allowSelf, "allow-self", false, "Allow sending a message to yourself")
-	cmd.Flags().BoolVar(&raw, "raw", false, "Send body directly to PTY without [h2 message from: ...] prefix (useful for permission prompts)")
+	cmd.Flags().BoolVar(&raw, "raw", false, "Send body directly to PTY without header prefix (useful for permission prompts)")
 	cmd.Flags().BoolVar(&expectsResponse, "expects-response", false, "Register an idle reminder trigger on the recipient")
-	cmd.Flags().StringVar(&respondsTo, "responds-to", "", "Close an expects-response obligation by trigger ID")
+	cmd.Flags().StringVar(&respondsTo, "closes", "", "Close a reminder trigger by ID (and optionally send a response)")
 
 	return cmd
 }
@@ -145,7 +145,7 @@ With --responds-to <id>, the trigger is removed from your own daemon (and option
 func registerExpectsResponseTrigger(agentName, sender, triggerID string) (string, error) {
 	buildSpec := func(id string) *message.TriggerSpec {
 		reminderMsg := fmt.Sprintf(
-			"[h2 reminder about message from %s (id: %s)] Respond with: h2 send --responds-to %s %s \"your response\"",
+			"Reminder about message from %s (id: %s). Do not close this reminder when acknowledging, close it only when providing the full response that was requested. Close with: h2 send --closes %s %s \"your response\"",
 			sender, id, id, sender,
 		)
 		return &message.TriggerSpec{
@@ -154,7 +154,6 @@ func registerExpectsResponseTrigger(agentName, sender, triggerID string) (string
 			Event:    "state_change",
 			State:    "idle",
 			Message:  reminderMsg,
-			From:     "h2-reminder",
 			Priority: "idle",
 		}
 	}
@@ -206,9 +205,9 @@ func removeTriggerBestEffort(agentName, triggerID string) {
 	_ = resp
 }
 
-// handleRespondsTo handles the --responds-to flow: optionally send a response,
+// handleCloses handles the --responds-to flow: optionally send a response,
 // then remove the trigger from own daemon.
-func handleRespondsTo(triggerID string, args []string, file, priority string, allowSelf bool) error {
+func handleCloses(triggerID string, args []string, file, priority string, allowSelf bool) error {
 	var name, body string
 
 	if file != "" {

@@ -1563,8 +1563,8 @@ func TestHandleInbound_ExpectsResponse_RegistersTriggerAndAnnotates(t *testing.T
 	if !strings.Contains(reqs[0].Trigger.Message, "alice") {
 		t.Errorf("trigger message should reference sender 'alice': %q", reqs[0].Trigger.Message)
 	}
-	if !strings.Contains(reqs[0].Trigger.Message, "--responds-to") {
-		t.Errorf("trigger message should include --responds-to: %q", reqs[0].Trigger.Message)
+	if !strings.Contains(reqs[0].Trigger.Message, "--closes") {
+		t.Errorf("trigger message should include --closes: %q", reqs[0].Trigger.Message)
 	}
 
 	// Second request should be send with expects-response annotation.

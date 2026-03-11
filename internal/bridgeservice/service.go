@@ -373,7 +373,7 @@ func (s *Service) sendToAgent(name, from, body string) error {
 // target agent's daemon. Returns an error if registration fails.
 func (s *Service) registerExpectsResponseTrigger(sockPath, agentName, sender, triggerID string) error {
 	reminderMsg := fmt.Sprintf(
-		"[h2 reminder about message from %s (id: %s)] Respond with: h2 send --responds-to %s %s \"your response\"",
+		"Reminder about message from %s (id: %s). Do not close this reminder when acknowledging, close it only when providing the full response that was requested. Close with: h2 send --closes %s %s \"your response\"",
 		sender, triggerID, triggerID, sender,
 	)
 	spec := &message.TriggerSpec{
@@ -382,7 +382,6 @@ func (s *Service) registerExpectsResponseTrigger(sockPath, agentName, sender, tr
 		Event:    "state_change",
 		State:    "idle",
 		Message:  reminderMsg,
-		From:     "h2-reminder",
 		Priority: "idle",
 	}
 
