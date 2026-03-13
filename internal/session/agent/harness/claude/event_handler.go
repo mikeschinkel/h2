@@ -120,6 +120,15 @@ func (h *EventHandler) processLogRecord(eventName string, lr otelLogRecord, ts t
 			return true, "turn_completed_emitted"
 		}
 		return false, "no_usage_values"
+	case "api_error":
+		statusCode := getAttr(lr.Attributes, "status_code")
+		errMsg := getAttr(lr.Attributes, "error")
+		if statusCode == "429" {
+			h.emitStateChange(ts, monitor.StateIdle, monitor.SubStateUsageLimit)
+			return true, fmt.Sprintf("usage_limit status=%s error=%q", statusCode, errMsg)
+		}
+		return false, fmt.Sprintf("api_error status=%s", statusCode)
+
 	case "tool_result":
 		toolName := getAttr(lr.Attributes, "tool_name")
 		if toolName != "" {
