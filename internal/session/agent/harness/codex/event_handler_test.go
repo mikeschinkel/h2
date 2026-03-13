@@ -268,9 +268,9 @@ func TestEventHandler_ToolResult(t *testing.T) {
 	})
 	p.OnLogs(body)
 
-	got := drainEvents(events, 1)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(got))
+	got := drainEvents(events, 2)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(got))
 	}
 	if got[0].Type != monitor.EventToolCompleted {
 		t.Fatalf("Type = %v, want EventToolCompleted", got[0].Type)
@@ -288,6 +288,14 @@ func TestEventHandler_ToolResult(t *testing.T) {
 	if !data.Success {
 		t.Error("Success = false, want true")
 	}
+	// tool_result should transition state back to Active/Thinking.
+	if got[1].Type != monitor.EventStateChange {
+		t.Fatalf("event[1].Type = %v, want EventStateChange", got[1].Type)
+	}
+	state := got[1].Data.(monitor.StateChangeData)
+	if state.State != monitor.StateActive || state.SubState != monitor.SubStateThinking {
+		t.Errorf("state = (%v,%v), want (Active,Thinking)", state.State, state.SubState)
+	}
 }
 
 func TestEventHandler_ToolResult_Failure(t *testing.T) {
@@ -300,13 +308,18 @@ func TestEventHandler_ToolResult_Failure(t *testing.T) {
 	})
 	p.OnLogs(body)
 
-	got := drainEvents(events, 1)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(got))
+	got := drainEvents(events, 2)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(got))
 	}
 	data := got[0].Data.(monitor.ToolCompletedData)
 	if data.Success {
 		t.Error("Success = true, want false")
+	}
+	// Should still transition back to thinking even on failure.
+	state := got[1].Data.(monitor.StateChangeData)
+	if state.State != monitor.StateActive || state.SubState != monitor.SubStateThinking {
+		t.Errorf("state = (%v,%v), want (Active,Thinking)", state.State, state.SubState)
 	}
 }
 
@@ -461,6 +474,86 @@ func TestEventHandler_SSECompleted_DebouncesIdleAndCancelsOnToolUse(t *testing.T
 	case ev := <-events:
 		t.Fatalf("unexpected event after debounce cancellation: %+v", ev)
 	default:
+	}
+}
+
+func TestEventHandler_ToolResultUnblocksIdleAfterCompletion(t *testing.T) {
+	// Regression: tool_result must transition state from ToolUse back to
+	// Thinking so that a subsequent response.completed can schedule the idle
+	// debounce. Without this fix the agent gets permanently stuck in
+	// "active tool_use".
+	old := codexIdleDebounceDelay
+	codexIdleDebounceDelay = 20 * time.Millisecond
+	defer func() { codexIdleDebounceDelay = old }()
+
+	events := make(chan monitor.AgentEvent, 64)
+	p := NewEventHandler(events)
+
+	// 1. user_prompt → Active/Thinking
+	p.OnLogs(makeLogsPayload("codex.user_prompt", nil))
+	_ = drainEvents(events, 2) // user_prompt + state_change
+
+	// 2. tool_decision approved → Active/ToolUse
+	p.OnLogs(makeLogsPayload("codex.tool_decision", []otelAttribute{
+		{Key: "tool_name", Value: otelAttrValue{StringValue: "exec_command"}},
+		{Key: "call_id", Value: otelAttrValue{StringValue: "call-stuck-1"}},
+		{Key: "decision", Value: otelAttrValue{StringValue: "approved"}},
+	}))
+	_ = drainEvents(events, 2) // tool_started + state_change(ToolUse)
+
+	// 3. sse_event response.completed (first turn) — state is ToolUse so
+	//    idle is NOT scheduled. This is correct.
+	p.OnLogs(makeLogsPayload("codex.sse_event", []otelAttribute{
+		{Key: "event.kind", Value: otelAttrValue{StringValue: "response.completed"}},
+		{Key: "input_token_count", Value: otelAttrValue{IntValue: json.RawMessage("211319")}},
+		{Key: "output_token_count", Value: otelAttrValue{IntValue: json.RawMessage("176")}},
+		{Key: "cached_token_count", Value: otelAttrValue{IntValue: json.RawMessage("6528")}},
+	}))
+	got := drainEvents(events, 1) // turn_completed only
+	if len(got) != 1 || got[0].Type != monitor.EventTurnCompleted {
+		t.Fatalf("expected turn_completed, got %+v", got)
+	}
+
+	// 4. tool_result → should transition to Active/Thinking
+	p.OnLogs(makeLogsPayload("codex.tool_result", []otelAttribute{
+		{Key: "tool_name", Value: otelAttrValue{StringValue: "exec_command"}},
+		{Key: "call_id", Value: otelAttrValue{StringValue: "call-stuck-1"}},
+		{Key: "duration_ms", Value: otelAttrValue{IntValue: json.RawMessage("145")}},
+		{Key: "success", Value: otelAttrValue{StringValue: "true"}},
+	}))
+	got = drainEvents(events, 2) // tool_completed + state_change(Thinking)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 events from tool_result, got %d", len(got))
+	}
+	state := got[1].Data.(monitor.StateChangeData)
+	if state.State != monitor.StateActive || state.SubState != monitor.SubStateThinking {
+		t.Fatalf("after tool_result state = (%v,%v), want (Active,Thinking)", state.State, state.SubState)
+	}
+
+	// 5. sse_event response.completed (final turn) — state is now Thinking
+	//    so idle SHOULD be scheduled via debounce.
+	p.OnLogs(makeLogsPayload("codex.sse_event", []otelAttribute{
+		{Key: "event.kind", Value: otelAttrValue{StringValue: "response.completed"}},
+		{Key: "input_token_count", Value: otelAttrValue{IntValue: json.RawMessage("20677")}},
+		{Key: "output_token_count", Value: otelAttrValue{IntValue: json.RawMessage("130")}},
+		{Key: "cached_token_count", Value: otelAttrValue{IntValue: json.RawMessage("11264")}},
+	}))
+	got = drainEvents(events, 1) // turn_completed
+	if len(got) != 1 || got[0].Type != monitor.EventTurnCompleted {
+		t.Fatalf("expected turn_completed, got %+v", got)
+	}
+
+	// 6. Wait for debounce → should get idle state change
+	got = drainEvents(events, 1)
+	if len(got) != 1 {
+		t.Fatalf("expected idle state change after debounce, got %d events", len(got))
+	}
+	if got[0].Type != monitor.EventStateChange {
+		t.Fatalf("expected EventStateChange, got %v", got[0].Type)
+	}
+	state = got[0].Data.(monitor.StateChangeData)
+	if state.State != monitor.StateIdle || state.SubState != monitor.SubStateNone {
+		t.Fatalf("final state = (%v,%v), want (Idle,None)", state.State, state.SubState)
 	}
 }
 

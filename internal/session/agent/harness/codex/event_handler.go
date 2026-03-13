@@ -260,8 +260,13 @@ func (p *EventHandler) processEvent(name string, attrs []otelAttribute, ts time.
 					Success:    success,
 				},
 			})
+			// Transition back to Active/Thinking so that a subsequent
+			// response.completed can schedule the idle debounce. Without
+			// this, shouldScheduleIdleAfterCompletion() still sees ToolUse
+			// and the agent gets stuck in "active tool_use" permanently.
+			p.emitStateChange(ts, monitor.StateActive, monitor.SubStateThinking)
 			p.debugf("span=codex.tool_result tool=%q call_id=%q duration_ms=%d success=%t", toolName, callID, durationMs, success)
-			return spanProcessResult{recognized: true, emitted: 1}
+			return spanProcessResult{recognized: true, emitted: 2}
 		}
 		p.debugf("span=codex.tool_result missing tool_name")
 		return spanProcessResult{recognized: true}
