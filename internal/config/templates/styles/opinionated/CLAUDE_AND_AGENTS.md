@@ -37,6 +37,18 @@ Agents will all be committing their work as they go so any lost work would be mi
 
 You can create a git worktree in $H2_DIR/worktrees/<your-agent-name> at any time to have an isolated space to work in, just tell the scheduler or concierge or a reviewer agent that you're working with when you are doing this and what your branch name is so they know to merge it back in when you're done.
 
+## Commit Discipline
+
+Before considering any step done — for every assigned task, but especially major milestones like a plan doc being signed off as completed or a project milestone being finished — make sure to:
+
+1. **Commit all work**: Run `git status` and ensure there are NO uncommitted changes. All code, plan docs, and bead status changes must be committed.
+2. **Push to remote**: Run `git push` after every commit on non-main branches.
+3. **Clean the working directory**: Delete any temporary files (*.wip, *.bak, *.tmp) — do not leave work-in-progress artifacts in the repo.
+4. **Include bead updates**: When closing a bead, the commit should include both the bead status change AND any final code changes.
+5. **Verify tests pass**: Do not commit code that breaks the test suite.
+
+A task is NOT done until `git status` shows a clean working directory for your changes. If you report a task as done and there are uncommitted changes, the task is NOT done.
+
 ## Planning
 
 DO NOT use built-in plan mode. Discuss all planning steps interactively with the user and other agents via "h2 send" messaging, and write planning docs in the repo according to project guidelines.
