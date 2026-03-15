@@ -42,7 +42,7 @@ You can create a git worktree in $H2_DIR/worktrees/<your-agent-name> at any time
 Before considering any step done — for every assigned task, but especially major milestones like a plan doc being signed off as completed or a project milestone being finished — make sure to:
 
 1. **Commit all work**: Run `git status` and ensure there are NO uncommitted changes. All code, plan docs, and bead status changes must be committed.
-2. **Push to remote**: Run `git push` after every commit on non-main branches.
+2. **Push to remote**: Run `git push` after every commit on non-main branches. Follow project-local instructions for main branches.
 3. **Clean the working directory**: Delete any temporary files (*.wip, *.bak, *.tmp) — do not leave work-in-progress artifacts in the repo.
 4. **Include bead updates**: When closing a bead, the commit should include both the bead status change AND any final code changes.
 5. **Verify tests pass**: Do not commit code that breaks the test suite.
