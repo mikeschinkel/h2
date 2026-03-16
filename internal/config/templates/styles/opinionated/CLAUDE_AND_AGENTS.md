@@ -61,7 +61,7 @@ The design doc should start with high level summarization of the approach, the a
 
 From there, it should go into detail about things like package/module structure of the code, import flow assumptions of what should or should not import what, fully document any API/GRPC/other interfaces, then all major classes/structs/components and what properties and key methods they hold.
 
-The design doc should lastly include a Testing section, with any details about unit testing (any unusual areas to test, mocking strategy for different components, etc.), component testing (what frameworks used, how to write tests, what to test vs what should be covered in unit tests or other methods), and integration testing (not necessarily the full e2e testing, but important areas where we will test multiple pieces/components in conjunction with each other).
+The design doc should lastly include a Testing section, with any details about unit testing (any unusual areas to test, mocking strategy for different components, etc.), component testing (what frameworks used, how to write tests, what to test vs what should be covered in unit tests or other methods), and integration testing (not necessarily the full e2e testing, but important areas where we will test multiple pieces/components in conjunction with each other). For every category of test, specify: (1) where the test files will live in the codebase (exact package/directory paths), and (2) which make target or test suite they roll up into (e.g., `make test`, `make test-all-harness`, `make stress`, `make ci-nightly`). Tests without a home and a runner don't get run.
 
 ### Design Review Docs
 
@@ -77,6 +77,8 @@ Lastly, it should also include manual qa testing plans that we should do. These 
 
 All testing plans should be considered on the merits of "will they work well and provide additional assurance now and for future releases". If they don't work or don't provide any real incremental assurance, we don't need them. But we SHOULD NOT rule out any testing ideas because they seem like too much work or we're worried about ROI (remember, URP). If they will improve confidence, and they can be done even if it takes significant effort, they should be done.
 
+For every test described in a testing plan, be concrete about: (1) where the test files will live in the codebase (exact package/directory paths), (2) which make target or test suite they roll up into, and (3) whether they run in CI PR checks, nightly, or on-demand only. A test that exists in a plan but has no specified location and runner is not a real commitment — it's a wish.
+
 ### Shaping
 
 We have a "Shaping" skill that can help with defining requirements and comparing alternative solutions. This is good to use while brainstorming and early on while figuring out what a solution looks like. It doesn't need to be used for every plan, but should be used before writing the official design doc if we're starting from a set of requirements without a prescribed solution. If requirements are vague, part of this exercise should including discussing with the user or other agents to more rigidly specify them.
@@ -88,6 +90,8 @@ These are techniques the user may prompt for that you should know about and be r
 ### Unreasonably Robust Programming (URP)
 
 This is the idea that since agents are writing the code, we can do things that are valuable but where the ROI might seem unjustified due to perceived high cost. Do not worry about implementation effort and ROI of development. Do not worry about how many people are using this application or what the development budget is. The goal is to assume that we have an unlimited development budget and think about what we would build that would make our system more robust, stable, thoroughly tested, provably correct, less likely to cause outages, etc. Be creative and build something we can be proud of. Label any applications of Unreasonably Robust Programming in a section in the Design Doc.
+
+URP items in a plan must be concrete commitments, not wishlists. Each item should specify exactly what will be built, where it fits in the implementation, and how it will be tested. If a URP item says "property-based testing for X", define the properties and the generator. If it says "crash safety via atomic flush", describe the mechanism. If it's not concrete enough to implement directly from the plan, it's not ready. The same standard applies to Extreme Optimization and Alien Artifacts sections — commit to each item with specific design, or cut it.
 
 Anything that can be measured should be measured, including test coverage, benchmarks, load tests, etc. We're not trying to over-engineer just for the sake of it. We need clear evidence, or if not possible then a reasonable hypothesis, that what we're building is actually helping in some tangible way. The way we will measure this should be clearly articulated in the plan (and of course measurement should be automated as part of the work).
 

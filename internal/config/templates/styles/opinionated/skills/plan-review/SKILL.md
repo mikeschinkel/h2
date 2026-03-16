@@ -37,10 +37,10 @@ Evaluate the plan for:
 - **Consistency**: Does this doc align with the architecture doc and dependency docs? Are cross-document interfaces compatible?
 - **Acceptance Criteria**: Do acceptance criteria exist? Are they concrete and testable? Does each one cross at least one component boundary? Flag if any criteria only test internal behavior without boundary crossing. Flag if criteria use internal APIs instead of the end-user interface.
 - **Connected Components**: Are connected components listed? Are the interface descriptions specific enough (concrete types, protocols, message formats) that a seam review could verify compatibility with the other side?
-- **Testability**: Does the test harness cover all critical paths? Any gaps in fault injection, oracle testing, or property-based coverage?
+- **Testability**: Does the test harness cover all critical paths? Any gaps in fault injection, oracle testing, or property-based coverage? Does every test category specify where test files live (exact paths), which make target they roll up into, and whether they run in CI PR checks, nightly, or on-demand? Flag any tests described without a location and runner.
 - **Performance**: Are performance claims substantiated? Any obvious bottlenecks or scalability concerns?
 - **Security**: Any injection vectors, privilege escalation paths, or missing validation?
-- **URP/EO/AA claims**: Are these sections substantive or hand-waving? Are claimed techniques actually applicable?
+- **URP/EO/AA claims**: Are these sections concrete commitments or wishlists? Each item must specify what will be built, where it fits, and how it's tested. Flag any items that read as "we could do X" rather than "we will do X with this specific design." Flag techniques that aren't applicable or wouldn't provide measurable benefit.
 - **Implementation Guide candidates**: Flag findings that are "implementation guide worthy" — non-obvious cross-cutting concerns that span multiple plan docs and that every implementor should know about, not just the teams working on this specific component. Mark these with `[IG]` in the finding title.
 
 ## Phase 3: Write Findings

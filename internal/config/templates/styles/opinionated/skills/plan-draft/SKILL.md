@@ -34,10 +34,10 @@ Write `docs/plans/$0.md` following project conventions:
 - Detailed design for all non-trivial algorithms and protocols
 - Connected Components — list which other components this plan connects to (its seams), with the interface at each boundary (function signatures, wire protocols, shared types, message formats)
 - Acceptance Criteria — 3-8 end-user-facing scenarios that prove the component works in the real system, not just in isolation. Each scenario must cross at least one component boundary. Format: scenario name, steps using the end-user interface (CLI, API, web UI, mobile — whatever the product exposes), expected outcome. These are NOT internal API tests; they verify behavior as a user would experience it.
-- Testing section (unit, component, integration strategy)
-- URP (Unreasonably Robust Programming) section — what would we build with unlimited budget?
-- Extreme Optimization section — SIMD, lock-free, zero-copy opportunities
-- Alien Artifacts section — advanced CS/math techniques applicable here
+- Testing section (unit, component, integration strategy). For every test category, specify: (1) where test files will live (exact package/directory paths), (2) which make target or test suite they roll up into, (3) whether they run in CI PR checks, nightly, or on-demand. Tests without a home and a runner don't get run.
+- URP (Unreasonably Robust Programming) section — concrete commitments, not wishlists. Each item must specify exactly what will be built, where it fits in the implementation, and how it will be tested. If it's not concrete enough to implement directly from the plan, cut it or make it concrete.
+- Extreme Optimization section — same standard: commit to specific techniques with design details, or cut them.
+- Alien Artifacts section — same standard: commit to specific techniques with design details, or cut them.
 
 Commit the plan doc and record the hash.
 
@@ -55,6 +55,8 @@ Write `docs/plans/$0-test-harness.md` covering:
 - Manual QA plan (tests requiring human/agent judgment)
 - CI tier mapping (which tests run in which CI stage)
 - Exit criteria (what must pass before implementation is considered done)
+
+For every test category above, specify: (1) where test files will live in the codebase (exact package/directory paths), (2) which make target they roll up into, (3) whether they run in CI PR checks, nightly, or on-demand only. A test described without a location and runner is not a real commitment.
 
 Commit the test harness doc and record the hash.
 
