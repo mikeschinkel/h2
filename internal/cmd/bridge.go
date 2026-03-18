@@ -29,16 +29,13 @@ Use "h2 bridge create" to start a new bridge, or use the subcommands
 to manage running bridges.`,
 	}
 
-	// Create is the default subcommand: if any flags are passed to the
-	// parent command, delegate to create for backward compatibility.
 	createCmd := newBridgeCreateCmd()
 	cmd.AddCommand(createCmd)
 	cmd.AddCommand(newBridgeStopCmd())
 	cmd.AddCommand(newBridgeSetConciergeCmd())
 	cmd.AddCommand(newBridgeRemoveConciergeCmd())
 
-	// Backward compat: if parent is invoked with flags but no subcommand,
-	// run the create command. Without flags and no subcommand, show help.
+	// If parent is invoked with flags but no subcommand, run create.
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if cmd.Flags().NFlag() > 0 {
 			return createCmd.RunE(createCmd, args)
@@ -46,20 +43,19 @@ to manage running bridges.`,
 		return cmd.Help()
 	}
 
-	// Mirror create's flags on the parent for backward compat.
 	cmd.Flags().AddFlagSet(createCmd.Flags())
 
 	return cmd
 }
 
 func newBridgeCreateCmd() *cobra.Command {
-	var forUser string
+	var bridgeName string
 	var noConcierge bool
 	var setConcierge string
 	var conciergeRole string
 
 	cmd := &cobra.Command{
-		Use:   "create [--no-concierge | --set-concierge <name>] [--concierge-role <name>]",
+		Use:   "create --bridge <name> [--no-concierge | --set-concierge <name>] [--concierge-role <name>]",
 		Short: "Create and start a bridge service",
 		Long: `Creates and starts a bridge service that routes messages between external
 platforms (Telegram, macOS notifications) and h2 agent sessions.
@@ -70,6 +66,9 @@ only the bridge service with no default routing. Use --set-concierge <name>
 to route to an existing agent without spawning a new session.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if bridgeName == "" {
+				return fmt.Errorf("--bridge is required")
+			}
 			if noConcierge && setConcierge != "" {
 				return fmt.Errorf("cannot specify both --no-concierge and --set-concierge")
 			}
@@ -87,15 +86,9 @@ to route to an existing agent without spawning a new session.`,
 				return fmt.Errorf("load config: %w", err)
 			}
 
-			user, userCfg, err := resolveUser(cfg, forUser)
-			if err != nil {
+			// Validate bridge config exists.
+			if _, err := cfg.LookupBridge(bridgeName); err != nil {
 				return err
-			}
-
-			// Validate bridges exist before forking anything.
-			bridges := bridgeservice.FromConfig(&userCfg.Bridges)
-			if len(bridges) == 0 {
-				return fmt.Errorf("no bridges configured for user %q", user)
 			}
 
 			// Determine concierge name for routing.
@@ -107,15 +100,15 @@ to route to an existing agent without spawning a new session.`,
 			}
 
 			// Fork the bridge service as a background daemon.
-			stopped, err := stopExistingBridgeIfRunning(user)
+			stopped, err := stopExistingBridgeIfRunning(bridgeName)
 			if err != nil {
 				return err
 			}
 			if stopped {
-				fmt.Fprintf(os.Stderr, "Stopped existing bridge service for user %q.\n", user)
+				fmt.Fprintf(os.Stderr, "Stopped existing bridge %q.\n", bridgeName)
 			}
-			fmt.Fprintf(os.Stderr, "Starting bridge service for user %q...\n", user)
-			if err := bridgeservice.ForkBridge(user, concierge); err != nil {
+			fmt.Fprintf(os.Stderr, "Starting bridge %q...\n", bridgeName)
+			if err := bridgeservice.ForkBridge(bridgeName, concierge, ""); err != nil {
 				return err
 			}
 			fmt.Fprintf(os.Stderr, "Bridge service started.\n")
@@ -140,7 +133,7 @@ to route to an existing agent without spawning a new session.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&forUser, "for", "", "Which user's bridge config to load")
+	cmd.Flags().StringVar(&bridgeName, "bridge", "", "Named bridge config from config.yaml")
 	cmd.Flags().BoolVar(&noConcierge, "no-concierge", false, "Run without a concierge session")
 	cmd.Flags().StringVar(&setConcierge, "set-concierge", "", "Route to an existing concierge agent by name")
 	cmd.Flags().StringVar(&conciergeRole, "concierge-role", "concierge", "Role to use for the concierge session")
@@ -148,10 +141,9 @@ to route to an existing agent without spawning a new session.`,
 	return cmd
 }
 
-// stopExistingBridgeIfRunning stops an already-running bridge daemon for the user.
-// This allows `h2 bridge --set-concierge` to reliably apply new routing config.
-func stopExistingBridgeIfRunning(user string) (bool, error) {
-	sockPath := socketdir.Path(socketdir.TypeBridge, user)
+// stopExistingBridgeIfRunning stops an already-running bridge daemon by name.
+func stopExistingBridgeIfRunning(bridgeName string) (bool, error) {
+	sockPath := socketdir.Path(socketdir.TypeBridge, bridgeName)
 	conn, err := net.DialTimeout("unix", sockPath, 500*time.Millisecond)
 	if err != nil {
 		return false, nil
@@ -159,14 +151,14 @@ func stopExistingBridgeIfRunning(user string) (bool, error) {
 	defer conn.Close()
 
 	if err := message.SendRequest(conn, &message.Request{Type: "stop"}); err != nil {
-		return false, fmt.Errorf("stop existing bridge for user %q: send stop request: %w", user, err)
+		return false, fmt.Errorf("stop existing bridge %q: send stop request: %w", bridgeName, err)
 	}
 	resp, err := message.ReadResponse(conn)
 	if err != nil {
-		return false, fmt.Errorf("stop existing bridge for user %q: read response: %w", user, err)
+		return false, fmt.Errorf("stop existing bridge %q: read response: %w", bridgeName, err)
 	}
 	if !resp.OK {
-		return false, fmt.Errorf("stop existing bridge for user %q: %s", user, resp.Error)
+		return false, fmt.Errorf("stop existing bridge %q: %s", bridgeName, resp.Error)
 	}
 
 	for i := 0; i < 50; i++ {
@@ -175,7 +167,7 @@ func stopExistingBridgeIfRunning(user string) (bool, error) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	return false, fmt.Errorf("stop existing bridge for user %q: bridge socket still present after stop", user)
+	return false, fmt.Errorf("stop existing bridge %q: bridge socket still present after stop", bridgeName)
 }
 
 func newBridgeStopCmd() *cobra.Command {
@@ -226,7 +218,7 @@ listing them.`,
 }
 
 func newBridgeSetConciergeCmd() *cobra.Command {
-	var forUser string
+	var bridgeName string
 
 	cmd := &cobra.Command{
 		Use:   "set-concierge <agent-name>",
@@ -238,7 +230,7 @@ to be running yet.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			agentName := args[0]
 
-			resp, err := bridgeRequest(forUser, "set-concierge", agentName)
+			resp, err := bridgeRequest(bridgeName, "set-concierge", agentName)
 			if err != nil {
 				return err
 			}
@@ -255,20 +247,20 @@ to be running yet.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&forUser, "for", "", "Which user's bridge to target")
+	cmd.Flags().StringVar(&bridgeName, "bridge", "", "Which bridge to target")
 
 	return cmd
 }
 
 func newBridgeRemoveConciergeCmd() *cobra.Command {
-	var forUser string
+	var bridgeName string
 
 	cmd := &cobra.Command{
 		Use:   "remove-concierge",
 		Short: "Remove the concierge agent from a running bridge",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, err := bridgeRequest(forUser, "remove-concierge", "")
+			resp, err := bridgeRequest(bridgeName, "remove-concierge", "")
 			if err != nil {
 				return err
 			}
@@ -281,15 +273,15 @@ func newBridgeRemoveConciergeCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&forUser, "for", "", "Which user's bridge to target")
+	cmd.Flags().StringVar(&bridgeName, "bridge", "", "Which bridge to target")
 
 	return cmd
 }
 
 // bridgeRequest sends a request to a running bridge's socket and returns the response.
-// If userName is empty and exactly one bridge is running, it targets that bridge.
-func bridgeRequest(userName, reqType, body string) (*message.Response, error) {
-	sockPath, err := findBridgeSocket(userName)
+// If bridgeName is empty and exactly one bridge is running, it targets that bridge.
+func bridgeRequest(bridgeName, reqType, body string) (*message.Response, error) {
+	sockPath, err := findBridgeSocket(bridgeName)
 	if err != nil {
 		return nil, err
 	}
@@ -334,27 +326,4 @@ func findBridgeSocket(name string) (string, error) {
 		return "", fmt.Errorf("multiple bridges are running: %s; specify which one", strings.Join(names, ", "))
 	}
 	return bridges[0].Path, nil
-}
-
-// resolveUser determines which user config to use.
-func resolveUser(cfg *config.Config, forUser string) (string, *config.UserConfig, error) {
-	if forUser != "" {
-		uc, ok := cfg.Users[forUser]
-		if !ok {
-			return "", nil, fmt.Errorf("user %q not found in config", forUser)
-		}
-		return forUser, uc, nil
-	}
-
-	if len(cfg.Users) == 1 {
-		for name, uc := range cfg.Users {
-			return name, uc, nil
-		}
-	}
-
-	if len(cfg.Users) == 0 {
-		return "", nil, fmt.Errorf("no users configured in %s/config.yaml", config.ConfigDir())
-	}
-
-	return "", nil, fmt.Errorf("multiple users configured; use --for to specify which one")
 }

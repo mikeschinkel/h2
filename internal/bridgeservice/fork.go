@@ -11,18 +11,27 @@ import (
 	"h2/internal/socketdir"
 )
 
+// ProbeTimeout is the timeout used when probing a bridge socket.
+const ProbeTimeout = 500 * time.Millisecond
+
 // ForkBridge starts the bridge service as a background daemon process.
+// bridgeName is the key in config.yaml's top-level bridges map.
+// concierge is the optional concierge agent name for message routing.
+// pod is the optional pod name (empty for standalone bridges).
 // It re-execs with the hidden _bridge-service subcommand and waits for
 // the bridge socket to appear.
-func ForkBridge(user, concierge string) error {
+func ForkBridge(bridgeName, concierge, pod string) error {
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("find executable: %w", err)
 	}
 
-	args := []string{"_bridge-service", "--for", user}
+	args := []string{"_bridge-service", "--bridge", bridgeName}
 	if concierge != "" {
 		args = append(args, "--concierge", concierge)
+	}
+	if pod != "" {
+		args = append(args, "--pod", pod)
 	}
 
 	cmd := exec.Command(exePath, args...)
@@ -61,7 +70,7 @@ func ForkBridge(user, concierge string) error {
 	}()
 
 	// Wait for bridge socket to appear.
-	sockPath := socketdir.Path(socketdir.TypeBridge, user)
+	sockPath := socketdir.Path(socketdir.TypeBridge, bridgeName)
 	for i := 0; i < 50; i++ {
 		time.Sleep(100 * time.Millisecond)
 		if _, err := os.Stat(sockPath); err == nil {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"h2/internal/bridgeservice"
 	"h2/internal/config"
 	"h2/internal/session/message"
 	"h2/internal/socketdir"
@@ -125,12 +126,20 @@ func newPodLaunchCmd() *cobra.Command {
 					Var:       mergedVars,
 				}
 
-				role, err := config.LoadPodRoleRendered(roleName, roleCtx)
+				role, err := config.LoadRoleRendered(roleName, roleCtx)
 				if err != nil {
 					return fmt.Errorf("load role %q for agent %q: %w", roleName, agent.Name, err)
 				}
 
-				if err := setupAndForkAgentQuiet(agent.Name, role, pod, nil); err != nil {
+				// Apply pod-level overrides to the role.
+				overrideSlice := config.OverridesToSlice(agent.Overrides)
+				if len(overrideSlice) > 0 {
+					if err := config.ApplyOverrides(role, overrideSlice); err != nil {
+						return fmt.Errorf("apply overrides for agent %q: %w", agent.Name, err)
+					}
+				}
+
+				if err := setupAndForkAgentQuiet(agent.Name, role, pod, overrideSlice); err != nil {
 					return fmt.Errorf("start agent %q: %w", agent.Name, err)
 				}
 				fmt.Fprintf(os.Stderr, "  %s started\n", agent.Name)
@@ -146,6 +155,15 @@ func newPodLaunchCmd() *cobra.Command {
 			default:
 				fmt.Fprintf(os.Stderr, "Pod %q: %d started, %d already running\n", pod, started, skipped)
 			}
+
+			// Phase 3: Launch bridges (after agents so concierge socket exists).
+			if len(pt.Bridges) > 0 {
+				bridgeErr := podLaunchBridges(pt.Bridges, pod)
+				if bridgeErr != nil {
+					return bridgeErr
+				}
+			}
+
 			return nil
 		},
 	}
@@ -155,6 +173,89 @@ func newPodLaunchCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&varFlags, "var", nil, "Set template variable (key=value, repeatable)")
 
 	return cmd
+}
+
+// podLaunchBridges launches bridge daemons defined in a pod template.
+// Returns an error only if all bridges fail; partial failures are warnings.
+func podLaunchBridges(bridges []config.PodBridge, pod string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config for bridges: %w", err)
+	}
+
+	// Build agent name set for concierge validation.
+	expanded := podRunningAgents(pod)
+
+	// Validate bridge references.
+	bridgeNames := make(map[string]bool)
+	for name := range cfg.Bridges {
+		bridgeNames[name] = true
+	}
+	agentNames := make(map[string]bool)
+	for name := range expanded {
+		agentNames[name] = true
+	}
+	if err := config.ValidatePodBridges(bridges, bridgeNames, agentNames); err != nil {
+		return err
+	}
+
+	var bridgesFailed []string
+	var bridgesStarted []string
+
+	for _, pb := range bridges {
+		// Check if bridge is already running.
+		sockPath := socketdir.Path(socketdir.TypeBridge, pb.Bridge)
+		if conn, err := net.DialTimeout("unix", sockPath, bridgeservice.ProbeTimeout); err == nil {
+			// Bridge is running — check pod ownership.
+			if err := message.SendRequest(conn, &message.Request{Type: "status"}); err == nil {
+				if resp, err := message.ReadResponse(conn); err == nil && resp.OK && resp.Bridge != nil {
+					conn.Close()
+					if resp.Bridge.Pod != "" && resp.Bridge.Pod != pod {
+						return fmt.Errorf("bridge %q is already owned by pod %q; stop it first or remove from this pod", pb.Bridge, resp.Bridge.Pod)
+					}
+					// Same pod or standalone — stop and re-launch.
+					stopBridgeByName(pb.Bridge)
+				} else {
+					conn.Close()
+				}
+			} else {
+				conn.Close()
+			}
+		}
+
+		if err := bridgeservice.ForkBridge(pb.Bridge, pb.Concierge, pod); err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: bridge %q failed to start: %v\n", pb.Bridge, err)
+			bridgesFailed = append(bridgesFailed, pb.Bridge)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "  bridge %s started", pb.Bridge)
+		if pb.Concierge != "" {
+			fmt.Fprintf(os.Stderr, " (concierge: %s)", pb.Concierge)
+		}
+		fmt.Fprintln(os.Stderr)
+		bridgesStarted = append(bridgesStarted, pb.Bridge)
+	}
+
+	if len(bridgesFailed) > 0 {
+		fmt.Fprintf(os.Stderr, "\nPartial bridge failure: %d started, %d failed\n", len(bridgesStarted), len(bridgesFailed))
+		fmt.Fprintf(os.Stderr, "  Failed: %v\n", bridgesFailed)
+		fmt.Fprintf(os.Stderr, "  Started: %v\n", bridgesStarted)
+		return fmt.Errorf("%d bridge(s) failed to start", len(bridgesFailed))
+	}
+
+	return nil
+}
+
+// stopBridgeByName stops a running bridge daemon by its config name.
+func stopBridgeByName(name string) {
+	sockPath := socketdir.Path(socketdir.TypeBridge, name)
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	_ = message.SendRequest(conn, &message.Request{Type: "stop"})
+	_, _ = message.ReadResponse(conn)
 }
 
 // podDryRun resolves all agent configs in a pod and prints them without launching.
@@ -189,23 +290,27 @@ func podDryRun(templateName string, pod string, expanded []config.ExpandedAgent,
 			Var:       mergedVars,
 		}
 
-		role, err := config.LoadPodRoleRendered(roleName, roleCtx)
+		role, err := config.LoadRoleRendered(roleName, roleCtx)
 		if err != nil {
 			return fmt.Errorf("load role %q for agent %q: %w", roleName, agent.Name, err)
 		}
 
-		rc, err := resolveAgentConfig(agent.Name, role, pod, nil, nil)
+		// Apply pod-level overrides.
+		overrideSlice := config.OverridesToSlice(agent.Overrides)
+		if len(overrideSlice) > 0 {
+			if err := config.ApplyOverrides(role, overrideSlice); err != nil {
+				return fmt.Errorf("apply overrides for agent %q: %w", agent.Name, err)
+			}
+		}
+
+		rc, err := resolveAgentConfig(agent.Name, role, pod, overrideSlice, nil)
 		if err != nil {
 			return fmt.Errorf("resolve agent %q: %w", agent.Name, err)
 		}
 
 		// Annotate with pod-specific info.
 		rc.MergedVars = mergedVars
-		if config.IsPodScopedRole(roleName) {
-			rc.RoleScope = "pod"
-		} else {
-			rc.RoleScope = "global"
-		}
+		rc.RoleScope = "global"
 
 		resolved = append(resolved, rc)
 	}
@@ -217,17 +322,18 @@ func podDryRun(templateName string, pod string, expanded []config.ExpandedAgent,
 func newPodStopCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop <pod-name>",
-		Short: "Stop all agents in a pod",
+		Short: "Stop all agents and bridges in a pod",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			podName := args[0]
 
+			// Stop agents.
 			entries, err := socketdir.ListByType(socketdir.TypeAgent)
 			if err != nil {
 				return err
 			}
 
-			stopped := 0
+			agentsStopped := 0
 			for _, e := range entries {
 				info := queryAgent(e.Path)
 				if info == nil || info.Pod != podName {
@@ -253,14 +359,51 @@ func newPodStopCmd() *cobra.Command {
 					continue
 				}
 
-				fmt.Printf("Stopped %s\n", e.Name)
-				stopped++
+				fmt.Printf("Stopped agent %s\n", e.Name)
+				agentsStopped++
 			}
 
-			if stopped == 0 {
-				fmt.Printf("No agents found in pod %q\n", podName)
+			// Stop bridges belonging to this pod.
+			bridgeEntries, err := socketdir.ListByType(socketdir.TypeBridge)
+			if err != nil {
+				return err
+			}
+
+			bridgesStopped := 0
+			for _, e := range bridgeEntries {
+				info := queryBridge(e.Path)
+				if info == nil || info.Pod != podName {
+					continue
+				}
+
+				conn, err := net.Dial("unix", e.Path)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: cannot connect to bridge %q: %v\n", e.Name, err)
+					continue
+				}
+
+				if err := message.SendRequest(conn, &message.Request{Type: "stop"}); err != nil {
+					conn.Close()
+					fmt.Fprintf(os.Stderr, "Warning: cannot stop bridge %q: %v\n", e.Name, err)
+					continue
+				}
+
+				resp, err := message.ReadResponse(conn)
+				conn.Close()
+				if err != nil || !resp.OK {
+					fmt.Fprintf(os.Stderr, "Warning: stop failed for bridge %q\n", e.Name)
+					continue
+				}
+
+				fmt.Printf("Stopped bridge %s\n", e.Name)
+				bridgesStopped++
+			}
+
+			total := agentsStopped + bridgesStopped
+			if total == 0 {
+				fmt.Printf("No agents or bridges found in pod %q\n", podName)
 			} else {
-				fmt.Printf("Stopped %d agents in pod %q\n", stopped, podName)
+				fmt.Printf("Stopped %d agents and %d bridges in pod %q\n", agentsStopped, bridgesStopped, podName)
 			}
 			return nil
 		},
@@ -294,7 +437,7 @@ func newPodListCmd() *cobra.Command {
 			}
 
 			if len(templates) == 0 {
-				fmt.Printf("No pod templates found in %s\n", config.PodTemplatesDir())
+				fmt.Printf("No pod templates found in %s\n", config.PodDir())
 				return nil
 			}
 

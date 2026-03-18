@@ -16,11 +16,13 @@ import (
 const markerFile = ".h2-dir.txt"
 
 type Config struct {
-	Users map[string]*UserConfig `yaml:"users"`
+	Bridges map[string]*BridgesConfig `yaml:"bridges"` // named bridge configs
+	Users   map[string]*UserConfig    `yaml:"users"`
 }
 
 type UserConfig struct {
-	Bridges BridgesConfig `yaml:"bridges"`
+	// UserConfig holds per-user settings (non-bridge).
+	// Bridge configs are now at the top level.
 }
 
 type BridgesConfig struct {
@@ -190,15 +192,30 @@ func LoadFrom(path string) (*Config, error) {
 var allowedCommandRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 func (c *Config) validate() error {
-	for username, u := range c.Users {
-		if u == nil || u.Bridges.Telegram == nil {
+	for name, bc := range c.Bridges {
+		if bc == nil || bc.Telegram == nil {
 			continue
 		}
-		if err := validateAllowedCommands(u.Bridges.Telegram.AllowedCommands); err != nil {
-			return fmt.Errorf("user %s: bridges.telegram: %w", username, err)
+		if err := validateAllowedCommands(bc.Telegram.AllowedCommands); err != nil {
+			return fmt.Errorf("bridges.%s.telegram: %w", name, err)
 		}
 	}
 	return nil
+}
+
+// LookupBridge returns the named bridge config or an error if not found.
+func (c *Config) LookupBridge(name string) (*BridgesConfig, error) {
+	if c.Bridges == nil {
+		return nil, fmt.Errorf("no bridges configured")
+	}
+	bc, ok := c.Bridges[name]
+	if !ok {
+		return nil, fmt.Errorf("bridge %q not found in config", name)
+	}
+	if bc == nil {
+		return nil, fmt.Errorf("bridge %q has empty config", name)
+	}
+	return bc, nil
 }
 
 func validateAllowedCommands(cmds []string) error {

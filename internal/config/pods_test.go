@@ -55,111 +55,17 @@ func setupTestH2Dir(t *testing.T) string {
 	dir := t.TempDir()
 	WriteMarker(dir)
 	os.MkdirAll(filepath.Join(dir, "roles"), 0o755)
-	os.MkdirAll(filepath.Join(dir, "pods", "roles"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "pods"), 0o755)
 	t.Setenv("H2_DIR", dir)
 	_ = fakeHome // HOME, H2_ROOT_DIR, resolve cache handled by setupFakeHome
 	return dir
 }
 
-func writeRole(t *testing.T, dir, name string) {
-	t.Helper()
-	content := "role_name: " + name + "\ninstructions: |\n  Test role\n"
-	os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(content), 0o644)
-}
-
-func TestLoadPodRole_PodRoleOverGlobal(t *testing.T) {
+func TestPodDir(t *testing.T) {
 	h2Dir := setupTestH2Dir(t)
-	// Create both a global and a pod role with same name but different descriptions.
-	globalContent := "role_name: builder\ndescription: global\ninstructions: |\n  global\n"
-	podContent := "role_name: builder\ndescription: pod-override\ninstructions: |\n  pod\n"
-	os.WriteFile(filepath.Join(h2Dir, "roles", "builder.yaml"), []byte(globalContent), 0o644)
-	os.WriteFile(filepath.Join(h2Dir, "pods", "roles", "builder.yaml"), []byte(podContent), 0o644)
-
-	role, err := LoadPodRole("builder")
-	if err != nil {
-		t.Fatalf("LoadPodRole failed: %v", err)
-	}
-	if role.Description != "pod-override" {
-		t.Errorf("expected pod-override description, got %q", role.Description)
-	}
-}
-
-func TestLoadPodRole_FallbackToGlobal(t *testing.T) {
-	h2Dir := setupTestH2Dir(t)
-	// Only global role, no pod role.
-	globalContent := "role_name: builder\ndescription: global-only\ninstructions: |\n  global\n"
-	os.WriteFile(filepath.Join(h2Dir, "roles", "builder.yaml"), []byte(globalContent), 0o644)
-
-	role, err := LoadPodRole("builder")
-	if err != nil {
-		t.Fatalf("LoadPodRole failed: %v", err)
-	}
-	if role.Description != "global-only" {
-		t.Errorf("expected global-only description, got %q", role.Description)
-	}
-}
-
-func TestLoadPodRole_NoRoleAnywhere(t *testing.T) {
-	setupTestH2Dir(t)
-	_, err := LoadPodRole("nonexistent")
-	if err == nil {
-		t.Fatal("expected error for nonexistent role, got nil")
-	}
-}
-
-func TestListPodRoles_ReturnsOnlyPodRoles(t *testing.T) {
-	h2Dir := setupTestH2Dir(t)
-	// Create global and pod roles.
-	writeRole(t, filepath.Join(h2Dir, "roles"), "global-role")
-	writeRole(t, filepath.Join(h2Dir, "pods", "roles"), "pod-role-a")
-	writeRole(t, filepath.Join(h2Dir, "pods", "roles"), "pod-role-b")
-
-	podRoles, err := ListPodRoles()
-	if err != nil {
-		t.Fatalf("ListPodRoles failed: %v", err)
-	}
-	if len(podRoles) != 2 {
-		t.Fatalf("expected 2 pod roles, got %d", len(podRoles))
-	}
-
-	// Should not include global role.
-	for _, r := range podRoles {
-		if r.RoleName == "global-role" {
-			t.Error("ListPodRoles should not include global roles")
-		}
-	}
-}
-
-func TestListPodRoles_NoPodDir(t *testing.T) {
-	// No pods/roles/ directory at all.
-	dir := t.TempDir()
-	WriteMarker(dir)
-	t.Setenv("H2_DIR", dir)
-	ResetResolveCache()
-	t.Cleanup(func() { ResetResolveCache() })
-
-	roles, err := ListPodRoles()
-	if err != nil {
-		t.Fatalf("ListPodRoles failed: %v", err)
-	}
-	if len(roles) != 0 {
-		t.Errorf("expected 0 pod roles, got %d", len(roles))
-	}
-}
-
-func TestPodRolesDir(t *testing.T) {
-	h2Dir := setupTestH2Dir(t)
-	expected := filepath.Join(h2Dir, "pods", "roles")
-	if got := PodRolesDir(); got != expected {
-		t.Errorf("PodRolesDir() = %q, want %q", got, expected)
-	}
-}
-
-func TestPodTemplatesDir(t *testing.T) {
-	h2Dir := setupTestH2Dir(t)
-	expected := filepath.Join(h2Dir, "pods", "templates")
-	if got := PodTemplatesDir(); got != expected {
-		t.Errorf("PodTemplatesDir() = %q, want %q", got, expected)
+	expected := filepath.Join(h2Dir, "pods")
+	if got := PodDir(); got != expected {
+		t.Errorf("PodDir() = %q, want %q", got, expected)
 	}
 }
 
@@ -294,6 +200,28 @@ func TestExpandPodAgents_VarsPassThrough(t *testing.T) {
 		if a.Vars["team"] != "backend" || a.Vars["project"] != "h2" {
 			t.Errorf("agent %d: vars = %v, want team=backend project=h2", i, a.Vars)
 		}
+	}
+}
+
+func TestExpandPodAgents_OverridesPassThrough(t *testing.T) {
+	overrides := map[string]string{"worktree_enabled": "true", "agent_model": "opus"}
+	pt := &PodTemplate{
+		Agents: []PodTemplateAgent{
+			{Name: "coder", Role: "coding", Overrides: overrides},
+		},
+	}
+	agents, err := ExpandPodAgents(pt)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(agents))
+	}
+	if agents[0].Overrides["worktree_enabled"] != "true" {
+		t.Errorf("overrides not passed through: %v", agents[0].Overrides)
+	}
+	if agents[0].Overrides["agent_model"] != "opus" {
+		t.Errorf("overrides not passed through: %v", agents[0].Overrides)
 	}
 }
 
@@ -448,6 +376,58 @@ agents:
 	}
 	if a1.Vars["project"] != "h2" {
 		t.Errorf("agent 1 vars[project] = %q, want h2", a1.Vars["project"])
+	}
+}
+
+func TestPodTemplateAgent_YAMLParsing_WithOverrides(t *testing.T) {
+	yamlText := `
+pod_name: test
+agents:
+  - name: coder
+    role: coding
+    overrides:
+      worktree_enabled: "true"
+      agent_model: opus
+`
+	var pt PodTemplate
+	if err := yaml.Unmarshal([]byte(yamlText), &pt); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(pt.Agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(pt.Agents))
+	}
+	a := pt.Agents[0]
+	if a.Overrides["worktree_enabled"] != "true" {
+		t.Errorf("overrides[worktree_enabled] = %q, want true", a.Overrides["worktree_enabled"])
+	}
+	if a.Overrides["agent_model"] != "opus" {
+		t.Errorf("overrides[agent_model] = %q, want opus", a.Overrides["agent_model"])
+	}
+}
+
+func TestPodTemplateAgent_YAMLParsing_WithBridges(t *testing.T) {
+	yamlText := `
+pod_name: test
+bridges:
+  - bridge: personal
+    concierge: sage
+  - bridge: work
+agents:
+  - name: sage
+    role: concierge
+`
+	var pt PodTemplate
+	if err := yaml.Unmarshal([]byte(yamlText), &pt); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(pt.Bridges) != 2 {
+		t.Fatalf("expected 2 bridges, got %d", len(pt.Bridges))
+	}
+	if pt.Bridges[0].Bridge != "personal" || pt.Bridges[0].Concierge != "sage" {
+		t.Errorf("bridge 0: %+v", pt.Bridges[0])
+	}
+	if pt.Bridges[1].Bridge != "work" || pt.Bridges[1].Concierge != "" {
+		t.Errorf("bridge 1: %+v", pt.Bridges[1])
 	}
 }
 
@@ -626,8 +606,8 @@ agents:
 
 func TestLoadPodTemplateRendered_FromFile(t *testing.T) {
 	h2Dir := setupTestH2Dir(t)
-	tmplDir := filepath.Join(h2Dir, "pods", "templates")
-	os.MkdirAll(tmplDir, 0o755)
+	podDir := filepath.Join(h2Dir, "pods")
+	os.MkdirAll(podDir, 0o755)
 
 	content := `pod_name: myteam
 agents:
@@ -635,7 +615,7 @@ agents:
     role: coding
     count: 2
 `
-	os.WriteFile(filepath.Join(tmplDir, "myteam.yaml"), []byte(content), 0o644)
+	os.WriteFile(filepath.Join(podDir, "myteam.yaml"), []byte(content), 0o644)
 
 	ctx := &tmpl.Context{PodName: "myteam"}
 	pt, err := LoadPodTemplateRendered("myteam", ctx)
@@ -883,8 +863,6 @@ instructions: |
 // --- Section 8.1 gap: invalid rendered YAML ---
 
 func TestParsePodTemplateRendered_InvalidRenderedYAML(t *testing.T) {
-	// A variable value that produces invalid YAML when substituted.
-	// The rendered output has an unclosed bracket.
 	yamlText := `pod_name: {{ .Var.name }}
 agents:
   - name: worker
@@ -940,7 +918,6 @@ instructions: |
 		if err != nil {
 			t.Fatalf("load role for %s: %v", agent.Name, err)
 		}
-		// Check that each agent's instructions reflect its name and index.
 		if !strings.Contains(role.Instructions, agent.Name) {
 			t.Errorf("agent %s: instructions should contain name: %q", agent.Name, role.Instructions)
 		}
@@ -1000,14 +977,14 @@ instructions: |
 func TestE2E_PodWithCount(t *testing.T) {
 	h2Dir := setupTestH2Dir(t)
 
-	// Copy testdata fixture to the pod templates dir.
+	// Copy testdata fixture to the pod dir.
 	fixtureData, err := os.ReadFile("testdata/pods/count-template.yaml")
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	tmplDir := filepath.Join(h2Dir, "pods", "templates")
-	os.MkdirAll(tmplDir, 0o755)
-	os.WriteFile(filepath.Join(tmplDir, "count-template.yaml"), fixtureData, 0o644)
+	podDir := filepath.Join(h2Dir, "pods")
+	os.MkdirAll(podDir, 0o755)
+	os.WriteFile(filepath.Join(podDir, "count-template.yaml"), fixtureData, 0o644)
 
 	ctx := &tmpl.Context{PodName: "count-test", H2Dir: h2Dir}
 	pt, err := LoadPodTemplateRendered("count-template", ctx)
@@ -1054,9 +1031,9 @@ func TestE2E_PodVarsToRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read pod fixture: %v", err)
 	}
-	tmplDir := filepath.Join(h2Dir, "pods", "templates")
-	os.MkdirAll(tmplDir, 0o755)
-	os.WriteFile(filepath.Join(tmplDir, "vars-template.yaml"), podData, 0o644)
+	podDir := filepath.Join(h2Dir, "pods")
+	os.MkdirAll(podDir, 0o755)
+	os.WriteFile(filepath.Join(podDir, "vars-template.yaml"), podData, 0o644)
 
 	roleData, err := os.ReadFile("testdata/roles/needs-team.yaml")
 	if err != nil {
@@ -1098,78 +1075,9 @@ func TestE2E_PodVarsToRole(t *testing.T) {
 	}
 }
 
-// --- LoadPodRoleRendered tests ---
-
-func TestLoadPodRoleRendered_PodRoleWithRendering(t *testing.T) {
-	h2Dir := setupTestH2Dir(t)
-
-	podRoleContent := `role_name: pod-coder
-instructions: |
-  You are {{ .AgentName }} in pod {{ .PodName }}.
-`
-	os.WriteFile(filepath.Join(h2Dir, "pods", "roles", "pod-coder.yaml"), []byte(podRoleContent), 0o644)
-
-	ctx := &tmpl.Context{
-		AgentName: "coder-1",
-		PodName:   "myteam",
-		H2Dir:     h2Dir,
-	}
-	role, err := LoadPodRoleRendered("pod-coder", ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(role.Instructions, "coder-1") {
-		t.Errorf("instructions should contain agent name: %q", role.Instructions)
-	}
-	if !strings.Contains(role.Instructions, "myteam") {
-		t.Errorf("instructions should contain pod name: %q", role.Instructions)
-	}
-}
-
-func TestLoadPodRoleRendered_FallbackToGlobalWithRendering(t *testing.T) {
-	h2Dir := setupTestH2Dir(t)
-
-	globalContent := `role_name: coding
-instructions: |
-  You are {{ .AgentName }}.
-`
-	os.WriteFile(filepath.Join(h2Dir, "roles", "coding.yaml"), []byte(globalContent), 0o644)
-
-	ctx := &tmpl.Context{
-		AgentName: "coder-2",
-		H2Dir:     h2Dir,
-	}
-	role, err := LoadPodRoleRendered("coding", ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(role.Instructions, "coder-2") {
-		t.Errorf("instructions should contain agent name: %q", role.Instructions)
-	}
-}
-
-func TestLoadPodRoleRendered_NilContext(t *testing.T) {
-	h2Dir := setupTestH2Dir(t)
-
-	content := `role_name: basic
-instructions: |
-  Static instructions.
-`
-	os.WriteFile(filepath.Join(h2Dir, "roles", "basic.yaml"), []byte(content), 0o644)
-
-	role, err := LoadPodRoleRendered("basic", nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(role.Instructions, "Static") {
-		t.Errorf("instructions should contain 'Static': %q", role.Instructions)
-	}
-}
-
 // --- Template detection flexibility tests ---
 
 func TestExpandPodAgents_NoSpaceTemplateIndex(t *testing.T) {
-	// {{.Index}} without spaces should also be detected as a template.
 	pt := &PodTemplate{
 		Agents: []PodTemplateAgent{
 			{Name: "coder-{{.Index}}", Role: "coding", Count: intPtr(3)},
@@ -1191,7 +1099,6 @@ func TestExpandPodAgents_NoSpaceTemplateIndex(t *testing.T) {
 }
 
 func TestExpandPodAgents_TrimSpaceTemplateIndex(t *testing.T) {
-	// {{- .Index }} with trim markers should also work.
 	pt := &PodTemplate{
 		Agents: []PodTemplateAgent{
 			{Name: "coder-{{- .Index }}", Role: "coding", Count: intPtr(2)},
@@ -1381,6 +1288,85 @@ instructions: |
 		)
 		if err != nil {
 			t.Fatalf("expected no error when role defines no vars, got: %v", err)
+		}
+	})
+}
+
+// --- ValidatePodBridges tests ---
+
+func TestValidatePodBridges_Valid(t *testing.T) {
+	bridges := []PodBridge{
+		{Bridge: "personal", Concierge: "sage"},
+		{Bridge: "work"},
+	}
+	bridgeNames := map[string]bool{"personal": true, "work": true}
+	agentNames := map[string]bool{"sage": true, "coder": true}
+
+	if err := ValidatePodBridges(bridges, bridgeNames, agentNames); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidatePodBridges_MissingBridge(t *testing.T) {
+	bridges := []PodBridge{{Bridge: "missing"}}
+	bridgeNames := map[string]bool{"personal": true}
+	agentNames := map[string]bool{}
+
+	err := ValidatePodBridges(bridges, bridgeNames, agentNames)
+	if err == nil {
+		t.Fatal("expected error for missing bridge")
+	}
+	if !strings.Contains(err.Error(), "missing") {
+		t.Errorf("error should mention missing bridge: %v", err)
+	}
+}
+
+func TestValidatePodBridges_MissingConcierge(t *testing.T) {
+	bridges := []PodBridge{{Bridge: "personal", Concierge: "nonexistent"}}
+	bridgeNames := map[string]bool{"personal": true}
+	agentNames := map[string]bool{"sage": true}
+
+	err := ValidatePodBridges(bridges, bridgeNames, agentNames)
+	if err == nil {
+		t.Fatal("expected error for missing concierge")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Errorf("error should mention missing concierge: %v", err)
+	}
+}
+
+func TestValidatePodBridges_EmptyBridgeName(t *testing.T) {
+	bridges := []PodBridge{{Bridge: ""}}
+	err := ValidatePodBridges(bridges, map[string]bool{}, map[string]bool{})
+	if err == nil {
+		t.Fatal("expected error for empty bridge name")
+	}
+}
+
+// --- OverridesToSlice tests ---
+
+func TestOverridesToSlice(t *testing.T) {
+	t.Run("nil", func(t *testing.T) {
+		result := OverridesToSlice(nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		result := OverridesToSlice(map[string]string{})
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("values", func(t *testing.T) {
+		result := OverridesToSlice(map[string]string{"worktree_enabled": "true"})
+		if len(result) != 1 {
+			t.Fatalf("expected 1 element, got %d", len(result))
+		}
+		if result[0] != "worktree_enabled=true" {
+			t.Errorf("expected worktree_enabled=true, got %q", result[0])
 		}
 	})
 }

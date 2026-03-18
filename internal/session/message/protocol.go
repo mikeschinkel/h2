@@ -100,6 +100,7 @@ type Response struct {
 // BridgeInfo is the public representation of bridge status.
 type BridgeInfo struct {
 	Name             string   `json:"name"`
+	Pod              string   `json:"pod,omitempty"` // pod name if launched from a pod
 	Channels         []string `json:"channels"`
 	Uptime           string   `json:"uptime"`
 	MessagesSent     int64    `json:"messages_sent"`

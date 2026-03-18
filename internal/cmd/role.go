@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"h2/internal/config"
-	s "h2/internal/termstyle"
 	"h2/internal/tmpl"
 )
 
@@ -38,28 +37,13 @@ func newRoleListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			podRoles, err := config.ListPodRoles()
-			if err != nil {
-				return err
-			}
 
-			if len(globalRoles) == 0 && len(podRoles) == 0 {
+			if len(globalRoles) == 0 {
 				fmt.Printf("No roles found in %s\n", config.RolesDir())
 				return nil
 			}
 
-			// If pod roles exist, show grouped output.
-			if len(podRoles) > 0 {
-				if len(globalRoles) > 0 {
-					fmt.Printf("%s\n", s.Bold("Global roles"))
-					printRoleList(globalRoles, config.RolesDir())
-				}
-				fmt.Printf("%s\n", s.Bold("Pod roles"))
-				printRoleList(podRoles, config.PodRolesDir())
-			} else {
-				// No pod roles — flat output (backward compatible).
-				printRoleList(globalRoles, config.RolesDir())
-			}
+			printRoleList(globalRoles, config.RolesDir())
 			return nil
 		},
 	}

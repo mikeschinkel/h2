@@ -21,9 +21,11 @@ import (
 // platforms (Telegram, macOS notifications) and h2 agent sessions.
 type Service struct {
 	bridges            []bridge.Bridge
+	name               string        // bridge config name (used in socket name and status)
 	concierge          string        // session name, empty if --no-concierge; guarded by mu
+	conciergeAlive     bool          // whether the concierge agent socket is reachable; guarded by mu
+	pod                string        // pod name, empty for standalone bridges
 	socketDir          string        // ~/.h2/sockets/
-	user               string        // "from" field for inbound messages
 	lastSender         string        // tracks last agent who sent outbound
 	lastRoutedAgent    string        // tracks last agent an inbound message was delivered to
 	allowedCommands    []string      // slash commands allowed on this bridge
@@ -49,12 +51,13 @@ type ServiceOpts struct {
 }
 
 // New creates a bridge service.
-func New(bridges []bridge.Bridge, concierge, socketDir, user string, allowedCommands []string, opts ...ServiceOpts) *Service {
+func New(bridges []bridge.Bridge, name, concierge, pod, socketDir string, allowedCommands []string, opts ...ServiceOpts) *Service {
 	s := &Service{
 		bridges:         bridges,
+		name:            name,
 		concierge:       concierge,
+		pod:             pod,
 		socketDir:       socketDir,
-		user:            user,
 		allowedCommands: allowedCommands,
 		startTime:       time.Now(),
 	}
@@ -68,7 +71,7 @@ func New(bridges []bridge.Bridge, concierge, socketDir, user string, allowedComm
 // It blocks until ctx is cancelled.
 func (s *Service) Run(ctx context.Context) error {
 	ctx, s.cancel = context.WithCancel(ctx)
-	log.Printf("bridge: starting for user %q, concierge=%q, %d bridges", s.user, s.concierge, len(s.bridges))
+	log.Printf("bridge: starting %q, concierge=%q, pod=%q, %d bridges", s.name, s.concierge, s.pod, len(s.bridges))
 	for _, b := range s.bridges {
 		log.Printf("bridge: loaded %s", b.Name())
 	}
@@ -88,9 +91,9 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 	}
 
-	sockPath := filepath.Join(s.socketDir, socketdir.Format(socketdir.TypeBridge, s.user))
+	sockPath := filepath.Join(s.socketDir, socketdir.Format(socketdir.TypeBridge, s.name))
 
-	if err := socketdir.ProbeSocket(sockPath, fmt.Sprintf("bridge for user %q", s.user)); err != nil {
+	if err := socketdir.ProbeSocket(sockPath, fmt.Sprintf("bridge %q", s.name)); err != nil {
 		return err
 	}
 
@@ -197,7 +200,7 @@ func (s *Service) handleInbound(targetAgent, body string) {
 		return
 	}
 	log.Printf("bridge: routing inbound to %s", target)
-	if err := s.sendToAgent(target, s.user, body); err != nil {
+	if err := s.sendToAgent(target, s.name, body); err != nil {
 		log.Printf("bridge: send to agent %s: %v", target, err)
 		s.replyError(fmt.Sprintf("%s agent is not running, unable to deliver message.", target))
 	} else {
@@ -219,10 +222,10 @@ func (s *Service) replyError(msg string) {
 	}
 }
 
-// sendBridgeStatus sends a status message tagged with [bridge <user>] to all
+// sendBridgeStatus sends a status message tagged with [bridge <name>] to all
 // Sender bridges. Callers pass just the body text without the tag prefix.
 func (s *Service) sendBridgeStatus(ctx context.Context, text string) {
-	tagged := bridge.FormatAgentTag("bridge "+s.user, text)
+	tagged := bridge.FormatAgentTag("bridge "+s.name, text)
 	for _, b := range s.bridges {
 		if sender, ok := b.(bridge.Sender); ok {
 			if err := sender.Send(ctx, tagged); err != nil {
@@ -238,17 +241,20 @@ func (s *Service) handleSetConcierge(agentName string) *message.Response {
 		return &message.Response{Error: "agent name is required"}
 	}
 
-	// Probe the agent socket — non-fatal if unreachable since the agent might start later.
+	// Probe the agent socket synchronously to set initial liveness.
 	sockPath := filepath.Join(s.socketDir, socketdir.Format(socketdir.TypeAgent, agentName))
+	alive := false
 	if conn, err := net.DialTimeout("unix", sockPath, 2*time.Second); err != nil {
 		log.Printf("bridge: set-concierge: agent %s not reachable (will set anyway): %v", agentName, err)
 	} else {
 		conn.Close()
+		alive = true
 	}
 
 	s.mu.Lock()
 	old := s.concierge
 	s.concierge = agentName
+	s.conciergeAlive = alive
 	s.lastRoutedAgent = "" // reset stale typing target
 	s.mu.Unlock()
 
@@ -270,6 +276,7 @@ func (s *Service) handleRemoveConcierge() *message.Response {
 	s.mu.Lock()
 	old := s.concierge
 	s.concierge = ""
+	s.conciergeAlive = false
 	s.mu.Unlock()
 
 	if old == "" {
@@ -443,7 +450,8 @@ const defaultTypingTickInterval = 4 * time.Second
 
 // runTypingLoop periodically checks agent state and sends typing indicators
 // to all TypingIndicator bridges while the target agent is active. It also
-// monitors concierge liveness and sends a status message if the concierge stops.
+// monitors concierge liveness and handles auto-reassociation when a concierge
+// agent restarts with the same name.
 func (s *Service) runTypingLoop(ctx context.Context) {
 	interval := s.typingTickInterval
 	if interval == 0 {
@@ -452,8 +460,6 @@ func (s *Service) runTypingLoop(ctx context.Context) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	conciergeWasAlive := false
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -461,21 +467,29 @@ func (s *Service) runTypingLoop(ctx context.Context) {
 		case <-ticker.C:
 			s.mu.Lock()
 			concierge := s.concierge
+			wasAlive := s.conciergeAlive
 			s.mu.Unlock()
 
 			// Track concierge liveness.
 			if concierge != "" {
 				_, err := s.queryAgentState(concierge)
 				if err != nil {
-					if conciergeWasAlive {
-						conciergeWasAlive = false
+					if wasAlive {
+						s.mu.Lock()
+						s.conciergeAlive = false
+						s.lastRoutedAgent = "" // reset stale typing target
+						s.mu.Unlock()
 						s.handleConciergeDown(ctx, concierge)
 					}
 				} else {
-					conciergeWasAlive = true
+					if !wasAlive {
+						// Concierge came back — auto-reassociate.
+						s.handleConciergeUp(ctx, concierge)
+					}
+					s.mu.Lock()
+					s.conciergeAlive = true
+					s.mu.Unlock()
 				}
-			} else {
-				conciergeWasAlive = false
 			}
 
 			// Typing indicator: check lastRoutedAgent first, then fallback.
@@ -547,7 +561,8 @@ func (s *Service) buildBridgeInfo() *message.BridgeInfo {
 	}
 
 	return &message.BridgeInfo{
-		Name:             s.user,
+		Name:             s.name,
+		Pod:              s.pod,
 		Channels:         channels,
 		Uptime:           uptime,
 		MessagesSent:     sent,
@@ -560,10 +575,11 @@ func (s *Service) buildBridgeInfo() *message.BridgeInfo {
 func (s *Service) resolveDefaultTarget() string {
 	s.mu.Lock()
 	concierge := s.concierge
+	alive := s.conciergeAlive
 	last := s.lastSender
 	s.mu.Unlock()
 
-	if concierge != "" {
+	if concierge != "" && alive {
 		return concierge
 	}
 	if last != "" {
@@ -588,17 +604,21 @@ func (s *Service) firstAvailableAgent() string {
 	return ""
 }
 
-// handleConciergeDown clears the concierge and sends a status message when the
-// concierge agent is detected as stopped.
+// handleConciergeDown sends a status message when the concierge agent is
+// detected as stopped. The concierge name is NOT cleared — it is remembered
+// so that auto-reassociation works when the agent restarts.
 func (s *Service) handleConciergeDown(ctx context.Context, agentName string) {
-	s.mu.Lock()
-	s.concierge = ""
-	s.lastRoutedAgent = "" // reset so typing indicator doesn't track stale target
-	s.mu.Unlock()
-
 	firstAgent := s.firstAvailableAgent()
 	msg := fmt.Sprintf("Concierge agent %s stopped. %s",
 		agentName, noConciergeRouting(firstAgent))
+	s.sendBridgeStatus(ctx, msg)
+}
+
+// handleConciergeUp sends a status message when a previously-dead concierge
+// agent becomes reachable again (auto-reassociation).
+func (s *Service) handleConciergeUp(ctx context.Context, agentName string) {
+	msg := fmt.Sprintf("Concierge agent %s reconnected. %s",
+		agentName, conciergeRouting(agentName))
 	s.sendBridgeStatus(ctx, msg)
 }
 
@@ -607,6 +627,15 @@ func (s *Service) sendStartupMessage(ctx context.Context) {
 	s.mu.Lock()
 	concierge := s.concierge
 	s.mu.Unlock()
+
+	// Probe concierge liveness on startup.
+	if concierge != "" {
+		if _, err := s.queryAgentState(concierge); err == nil {
+			s.mu.Lock()
+			s.conciergeAlive = true
+			s.mu.Unlock()
+		}
+	}
 
 	var routing string
 	if concierge != "" {

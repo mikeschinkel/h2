@@ -22,66 +22,32 @@ func ValidatePodName(name string) error {
 	return nil
 }
 
-// PodRolesDir returns <h2-dir>/pods/roles/.
-func PodRolesDir() string {
-	return filepath.Join(ConfigDir(), "pods", "roles")
+// PodDir returns <h2-dir>/pods/.
+func PodDir() string {
+	return filepath.Join(ConfigDir(), "pods")
 }
 
-// PodTemplatesDir returns <h2-dir>/pods/templates/.
-func PodTemplatesDir() string {
-	return filepath.Join(ConfigDir(), "pods", "templates")
-}
-
-// LoadPodRole loads a role, checking pod roles first then global roles.
-// Only called when --pod is specified. Without --pod, use LoadRole() (global only).
-func LoadPodRole(name string) (*Role, error) {
-	// Try pod-scoped role first.
-	podPath, _ := resolveRolePath(PodRolesDir(), name)
-	if _, err := os.Stat(podPath); err == nil {
-		return LoadRoleFrom(podPath)
-	}
-	// Fall back to global role.
-	return LoadRole(name)
-}
-
-// IsPodScopedRole returns true if the role exists under pods/roles/ (pod-scoped),
-// false if it would fall back to the global roles/ directory.
-func IsPodScopedRole(name string) bool {
-	podPath, _ := resolveRolePath(PodRolesDir(), name)
-	_, err := os.Stat(podPath)
-	return err == nil
-}
-
-// LoadPodRoleRendered loads a role with template rendering, checking pod roles
-// first then global roles. If ctx is nil, behaves like LoadPodRole.
-func LoadPodRoleRendered(name string, ctx *tmpl.Context) (*Role, error) {
-	// Try pod-scoped role first.
-	podPath, _ := resolveRolePath(PodRolesDir(), name)
-	if _, err := os.Stat(podPath); err == nil {
-		return LoadRoleRenderedFrom(podPath, ctx)
-	}
-	// Fall back to global role.
-	return LoadRoleRendered(name, ctx)
-}
-
-// ListPodRoles returns roles from <h2-dir>/pods/roles/.
-func ListPodRoles() ([]*Role, error) {
-	return listRolesFromDir(PodRolesDir())
-}
-
-// PodTemplate defines a set of agents to launch together as a pod.
+// PodTemplate defines a set of agents and bridges to launch together.
 type PodTemplate struct {
 	PodName   string                 `yaml:"pod_name"`
 	Variables map[string]tmpl.VarDef `yaml:"variables"`
+	Bridges   []PodBridge            `yaml:"bridges"`
 	Agents    []PodTemplateAgent     `yaml:"agents"`
 }
 
-// PodTemplateAgent defines a single agent within a pod template.
+// PodBridge links a named bridge config to a concierge agent in the pod.
+type PodBridge struct {
+	Bridge    string `yaml:"bridge"`    // key into config.yaml bridges map
+	Concierge string `yaml:"concierge"` // agent name in this pod; empty = no concierge
+}
+
+// PodTemplateAgent defines a single agent within a pod.
 type PodTemplateAgent struct {
-	Name  string            `yaml:"name"`
-	Role  string            `yaml:"role"`
-	Count *int              `yaml:"count,omitempty"` // nil = default (1 agent), 0 = skip, N = N agents
-	Vars  map[string]string `yaml:"vars"`
+	Name      string            `yaml:"name"`
+	Role      string            `yaml:"role"`
+	Count     *int              `yaml:"count,omitempty"` // nil = default (1 agent), 0 = skip, N = N agents
+	Vars      map[string]string `yaml:"vars"`
+	Overrides map[string]string `yaml:"overrides"` // role field overrides (yaml tag = value)
 }
 
 // GetCount returns the effective count for this agent.
@@ -95,11 +61,12 @@ func (a PodTemplateAgent) GetCount() int {
 
 // ExpandedAgent is a fully resolved agent after count expansion.
 type ExpandedAgent struct {
-	Name  string
-	Role  string
-	Index int
-	Count int
-	Vars  map[string]string
+	Name      string
+	Role      string
+	Index     int
+	Count     int
+	Vars      map[string]string
+	Overrides map[string]string
 }
 
 // ExpandPodAgents expands count groups in a pod template into a flat list of agents.
@@ -132,11 +99,12 @@ func ExpandPodAgents(pt *PodTemplate) ([]ExpandedAgent, error) {
 		if count == 1 && (a.Count == nil || !hasTemplate) {
 			// Default (count omitted) or count:1 without template: single agent, no index.
 			agents = append(agents, ExpandedAgent{
-				Name:  a.Name,
-				Role:  a.Role,
-				Index: 0,
-				Count: 0,
-				Vars:  a.Vars,
+				Name:      a.Name,
+				Role:      a.Role,
+				Index:     0,
+				Count:     0,
+				Vars:      a.Vars,
+				Overrides: a.Overrides,
 			})
 			continue
 		}
@@ -156,11 +124,12 @@ func ExpandPodAgents(pt *PodTemplate) ([]ExpandedAgent, error) {
 			}
 
 			agents = append(agents, ExpandedAgent{
-				Name:  name,
-				Role:  a.Role,
-				Index: i,
-				Count: count,
-				Vars:  a.Vars,
+				Name:      name,
+				Role:      a.Role,
+				Index:     i,
+				Count:     count,
+				Vars:      a.Vars,
+				Overrides: a.Overrides,
 			})
 		}
 	}
@@ -185,9 +154,40 @@ func checkNameCollisions(agents []ExpandedAgent) error {
 	return nil
 }
 
-// LoadPodTemplate loads a template from <h2-dir>/pods/templates/<name>.yaml.
+// ValidatePodBridges checks that pod bridge references are valid.
+// bridgeNames is the set of available bridge config names from config.yaml.
+// agentNames is the set of expanded agent names in the pod.
+func ValidatePodBridges(bridges []PodBridge, bridgeNames map[string]bool, agentNames map[string]bool) error {
+	for i, pb := range bridges {
+		if pb.Bridge == "" {
+			return fmt.Errorf("bridges[%d]: bridge name is required", i)
+		}
+		if !bridgeNames[pb.Bridge] {
+			return fmt.Errorf("bridges[%d]: bridge %q not found in config", i, pb.Bridge)
+		}
+		if pb.Concierge != "" && !agentNames[pb.Concierge] {
+			return fmt.Errorf("bridges[%d]: concierge %q does not match any agent in this pod", i, pb.Concierge)
+		}
+	}
+	return nil
+}
+
+// OverridesToSlice converts a map[string]string to the []string format
+// expected by ApplyOverrides (key=value pairs).
+func OverridesToSlice(overrides map[string]string) []string {
+	if len(overrides) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(overrides))
+	for k, v := range overrides {
+		result = append(result, k+"="+v)
+	}
+	return result
+}
+
+// LoadPodTemplate loads a template from <h2-dir>/pods/<name>.yaml.
 func LoadPodTemplate(name string) (*PodTemplate, error) {
-	path := filepath.Join(PodTemplatesDir(), name+".yaml")
+	path := filepath.Join(PodDir(), name+".yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read pod template: %w", err)
@@ -203,7 +203,7 @@ func LoadPodTemplate(name string) (*PodTemplate, error) {
 // LoadPodTemplateRendered loads a pod template with template rendering.
 // It extracts variables, validates them, renders the template, then parses.
 func LoadPodTemplateRendered(name string, ctx *tmpl.Context) (*PodTemplate, error) {
-	path := filepath.Join(PodTemplatesDir(), name+".yaml")
+	path := filepath.Join(PodDir(), name+".yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read pod template: %w", err)
@@ -257,13 +257,13 @@ func ParsePodTemplateRendered(yamlText string, name string, ctx *tmpl.Context) (
 
 // ListPodTemplates returns available pod templates.
 func ListPodTemplates() ([]*PodTemplate, error) {
-	dir := PodTemplatesDir()
+	dir := PodDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("read pod templates dir: %w", err)
+		return nil, fmt.Errorf("read pods dir: %w", err)
 	}
 
 	var templates []*PodTemplate

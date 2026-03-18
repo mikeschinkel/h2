@@ -254,7 +254,7 @@ func waitForSocket(t *testing.T, path string) {
 func TestHandleInbound_AddressedMessage(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	agent := newMockAgent(t, tmpDir, "myagent")
-	svc := New(nil, "concierge", tmpDir, "alice", nil)
+	svc := New(nil, "alice", "concierge", "", tmpDir, nil)
 
 	svc.handleInbound("myagent", "hello agent")
 
@@ -276,7 +276,7 @@ func TestHandleInbound_AddressedMessage(t *testing.T) {
 func TestHandleInbound_UnaddressedWithConcierge(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	concierge := newMockAgent(t, tmpDir, "concierge")
-	svc := New(nil, "concierge", tmpDir, "alice", nil)
+	svc := New(nil, "alice", "concierge", "", tmpDir, nil)
 
 	svc.handleInbound("", "unaddressed message")
 
@@ -292,7 +292,7 @@ func TestHandleInbound_UnaddressedWithConcierge(t *testing.T) {
 func TestHandleInbound_UnaddressedNoConciergeLastSender(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	agent := newMockAgent(t, tmpDir, "agent1")
-	svc := New(nil, "", tmpDir, "alice", nil) // no concierge
+	svc := New(nil, "alice", "", "", tmpDir, nil) // no concierge
 	svc.lastSender = "agent1"
 
 	svc.handleInbound("", "reply to last sender")
@@ -311,7 +311,7 @@ func TestHandleInbound_UnaddressedNoConciergeFirstAgent(t *testing.T) {
 	// Create two agents — "alpha" should be picked (alphabetically first via os.ReadDir).
 	alpha := newMockAgent(t, tmpDir, "alpha")
 	_ = newMockAgent(t, tmpDir, "beta")
-	svc := New(nil, "", tmpDir, "alice", nil) // no concierge, no lastSender
+	svc := New(nil, "alice", "", "", tmpDir, nil) // no concierge, no lastSender
 
 	svc.handleInbound("", "fallback message")
 
@@ -329,7 +329,8 @@ func TestHandleInbound_UnaddressedNoConciergeFirstAgent(t *testing.T) {
 func TestHandleInbound_DeadAgentRepliesWithError(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "concierge", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "concierge", "", tmpDir, nil)
+	svc.conciergeAlive = true // simulate concierge was alive so it's targeted
 
 	// No concierge agent socket exists — send should fail.
 	svc.handleInbound("", "hello?")
@@ -346,7 +347,7 @@ func TestHandleInbound_DeadAgentRepliesWithError(t *testing.T) {
 func TestHandleInbound_ExplicitDeadAgentRepliesWithError(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "", "", tmpDir, nil)
 
 	// Explicitly target a non-existent agent.
 	svc.handleInbound("foo", "hello foo")
@@ -363,7 +364,7 @@ func TestHandleInbound_ExplicitDeadAgentRepliesWithError(t *testing.T) {
 func TestHandleInbound_NoAgentsRepliesWithError(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "", tmpDir, "alice", nil) // no concierge
+	svc := New([]bridge.Bridge{sender}, "alice", "", "", tmpDir, nil) // no concierge
 
 	// No agents at all.
 	svc.handleInbound("", "anyone there?")
@@ -385,7 +386,7 @@ func TestHandleOutbound(t *testing.T) {
 	recv := &mockReceiver{name: "recv-only"} // should not receive sends
 	svc := New(
 		[]bridge.Bridge{sender1, sender2, recv},
-		"", t.TempDir(), "alice", nil,
+		"alice", "", "", t.TempDir(), nil,
 	)
 
 	svc.sendOutbound("myagent", "build complete")
@@ -412,7 +413,7 @@ func TestHandleOutbound(t *testing.T) {
 
 func TestHandleOutbound_TagsNonConcierge(t *testing.T) {
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "concierge", t.TempDir(), "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "concierge", "", t.TempDir(), nil)
 
 	svc.sendOutbound("researcher", "here are the results")
 
@@ -428,7 +429,7 @@ func TestHandleOutbound_TagsNonConcierge(t *testing.T) {
 
 func TestHandleOutbound_NoConciergeTag(t *testing.T) {
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "concierge", t.TempDir(), "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "concierge", "", t.TempDir(), nil)
 
 	svc.sendOutbound("concierge", "build complete")
 
@@ -447,7 +448,7 @@ func TestHandleOutbound_NoConciergeTag(t *testing.T) {
 func TestSocketListener(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender := &mockSender{name: "test"}
-	svc := New([]bridge.Bridge{sender}, "", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "", "", tmpDir, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -511,7 +512,7 @@ func TestSocketListener(t *testing.T) {
 func TestStopRequest_ShutdownService(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender := &mockSender{name: "test"}
-	svc := New([]bridge.Bridge{sender}, "", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "", "", tmpDir, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -557,7 +558,7 @@ func TestStopRequest_ShutdownService(t *testing.T) {
 func TestRunStartsAndStopsReceivers(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	recv := &mockReceiver{name: "test-recv"}
-	svc := New([]bridge.Bridge{recv}, "concierge", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{recv}, "alice", "concierge", "", tmpDir, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -583,15 +584,25 @@ func TestRunStartsAndStopsReceivers(t *testing.T) {
 
 // --- resolveDefaultTarget tests ---
 
-func TestResolveDefaultTarget_Concierge(t *testing.T) {
-	svc := New(nil, "concierge", t.TempDir(), "alice", nil)
+func TestResolveDefaultTarget_ConciergeAlive(t *testing.T) {
+	svc := New(nil, "alice", "concierge", "", t.TempDir(), nil)
+	svc.conciergeAlive = true
 	if got := svc.resolveDefaultTarget(); got != "concierge" {
 		t.Errorf("expected concierge, got %q", got)
 	}
 }
 
+func TestResolveDefaultTarget_ConciergeNotAlive(t *testing.T) {
+	svc := New(nil, "alice", "concierge", "", t.TempDir(), nil)
+	// conciergeAlive is false by default — should fall through to lastSender or first agent.
+	svc.lastSender = "agent1"
+	if got := svc.resolveDefaultTarget(); got != "agent1" {
+		t.Errorf("expected agent1 (fallback), got %q", got)
+	}
+}
+
 func TestResolveDefaultTarget_LastSender(t *testing.T) {
-	svc := New(nil, "", t.TempDir(), "alice", nil)
+	svc := New(nil, "alice", "", "", t.TempDir(), nil)
 	svc.lastSender = "agent1"
 	if got := svc.resolveDefaultTarget(); got != "agent1" {
 		t.Errorf("expected agent1, got %q", got)
@@ -605,14 +616,14 @@ func TestResolveDefaultTarget_FirstAgent(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, socketdir.Format(socketdir.TypeAgent, "beta")), nil, 0o600)
 	os.WriteFile(filepath.Join(tmpDir, socketdir.Format(socketdir.TypeBridge, "alice")), nil, 0o600)
 
-	svc := New(nil, "", tmpDir, "alice", nil)
+	svc := New(nil, "alice", "", "", tmpDir, nil)
 	if got := svc.resolveDefaultTarget(); got != "alpha" {
 		t.Errorf("expected alpha, got %q", got)
 	}
 }
 
 func TestResolveDefaultTarget_NoAgents(t *testing.T) {
-	svc := New(nil, "", t.TempDir(), "alice", nil)
+	svc := New(nil, "alice", "", "", t.TempDir(), nil)
 	if got := svc.resolveDefaultTarget(); got != "" {
 		t.Errorf("expected empty, got %q", got)
 	}
@@ -625,7 +636,7 @@ func TestTypingLoop_SendsWhenActive(t *testing.T) {
 	_ = newMockStatusAgent(t, tmpDir, "concierge", "active")
 
 	tb := &mockTypingBridge{name: "telegram"}
-	svc := New([]bridge.Bridge{tb}, "concierge", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{tb}, "alice", "concierge", "", tmpDir, nil)
 	svc.typingTickInterval = 50 * time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -645,7 +656,7 @@ func TestTypingLoop_SkipsWhenIdle(t *testing.T) {
 	_ = newMockStatusAgent(t, tmpDir, "concierge", "idle")
 
 	tb := &mockTypingBridge{name: "telegram"}
-	svc := New([]bridge.Bridge{tb}, "concierge", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{tb}, "alice", "concierge", "", tmpDir, nil)
 	svc.typingTickInterval = 50 * time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -665,7 +676,7 @@ func TestTypingLoop_SkipsWhenNoAgent(t *testing.T) {
 	// No agent socket exists.
 
 	tb := &mockTypingBridge{name: "telegram"}
-	svc := New([]bridge.Bridge{tb}, "concierge", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{tb}, "alice", "concierge", "", tmpDir, nil)
 	svc.typingTickInterval = 50 * time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -685,7 +696,7 @@ func TestTypingLoop_WorksWithoutConcierge(t *testing.T) {
 	_ = newMockStatusAgent(t, tmpDir, "myagent", "active")
 
 	tb := &mockTypingBridge{name: "telegram"}
-	svc := New([]bridge.Bridge{tb}, "", tmpDir, "alice", nil) // no concierge
+	svc := New([]bridge.Bridge{tb}, "alice", "", "", tmpDir, nil) // no concierge
 	svc.typingTickInterval = 50 * time.Millisecond
 	svc.lastSender = "myagent" // fallback target
 
@@ -706,7 +717,7 @@ func TestTypingLoop_WorksWithoutConcierge(t *testing.T) {
 func TestStatusRequest(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "concierge", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "concierge", "", tmpDir, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -773,7 +784,7 @@ func TestStatusRequest_MultipleChannels(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender1 := &mockSender{name: "telegram"}
 	sender2 := &mockSender{name: "macos"}
-	svc := New([]bridge.Bridge{sender1, sender2}, "", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender1, sender2}, "alice", "", "", tmpDir, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -819,7 +830,7 @@ func TestStatusRequest_CountsInbound(t *testing.T) {
 	sender := &mockSender{name: "telegram"}
 	recv := &mockReceiver{name: "telegram-recv"}
 	agent := newMockAgent(t, tmpDir, "concierge")
-	svc := New([]bridge.Bridge{sender, recv}, "concierge", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender, recv}, "alice", "concierge", "", tmpDir, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -863,7 +874,7 @@ func TestTypingLoop_RespondsToStateChange(t *testing.T) {
 	agent := newMockStatusAgent(t, tmpDir, "concierge", "idle")
 
 	tb := &mockTypingBridge{name: "telegram"}
-	svc := New([]bridge.Bridge{tb}, "concierge", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{tb}, "alice", "concierge", "", tmpDir, nil)
 	svc.typingTickInterval = 50 * time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -891,7 +902,7 @@ func TestTypingLoop_RespondsToStateChange(t *testing.T) {
 
 func TestSendBridgeStatus(t *testing.T) {
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "", t.TempDir(), "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "", "", t.TempDir(), nil)
 
 	svc.sendBridgeStatus(context.Background(), "Bridge is up.")
 
@@ -911,7 +922,7 @@ func TestHandleSetConcierge_NewConcierge(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender := &mockSender{name: "telegram"}
 	_ = newMockStatusAgent(t, tmpDir, "sage", "idle")
-	svc := New([]bridge.Bridge{sender}, "", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "", "", tmpDir, nil)
 
 	resp := svc.handleSetConcierge("sage")
 
@@ -944,7 +955,7 @@ func TestHandleSetConcierge_ReplaceConcierge(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender := &mockSender{name: "telegram"}
 	_ = newMockStatusAgent(t, tmpDir, "new-agent", "idle")
-	svc := New([]bridge.Bridge{sender}, "old-agent", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "old-agent", "", tmpDir, nil)
 
 	resp := svc.handleSetConcierge("new-agent")
 
@@ -972,7 +983,7 @@ func TestHandleSetConcierge_ReplaceConcierge(t *testing.T) {
 }
 
 func TestHandleSetConcierge_EmptyName(t *testing.T) {
-	svc := New(nil, "", t.TempDir(), "alice", nil)
+	svc := New(nil, "alice", "", "", t.TempDir(), nil)
 
 	resp := svc.handleSetConcierge("")
 
@@ -987,7 +998,7 @@ func TestHandleSetConcierge_EmptyName(t *testing.T) {
 func TestHandleSetConcierge_ResetsLastRoutedAgent(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	_ = newMockStatusAgent(t, tmpDir, "sage", "idle")
-	svc := New(nil, "", tmpDir, "alice", nil)
+	svc := New(nil, "alice", "", "", tmpDir, nil)
 	svc.mu.Lock()
 	svc.lastRoutedAgent = "old-target"
 	svc.mu.Unlock()
@@ -1007,7 +1018,7 @@ func TestHandleSetConcierge_ResetsLastRoutedAgent(t *testing.T) {
 func TestHandleRemoveConcierge(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "sage", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "sage", "", tmpDir, nil)
 
 	resp := svc.handleRemoveConcierge()
 
@@ -1032,7 +1043,7 @@ func TestHandleRemoveConcierge(t *testing.T) {
 }
 
 func TestHandleRemoveConcierge_NoneSet(t *testing.T) {
-	svc := New(nil, "", t.TempDir(), "alice", nil)
+	svc := New(nil, "alice", "", "", t.TempDir(), nil)
 
 	resp := svc.handleRemoveConcierge()
 
@@ -1046,26 +1057,20 @@ func TestHandleRemoveConcierge_NoneSet(t *testing.T) {
 
 // --- handleConciergeDown tests ---
 
-func TestHandleConciergeDown_ClearsConcierge(t *testing.T) {
+func TestHandleConciergeDown_KeepsConciergeNameForReassociation(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "sage", tmpDir, "alice", nil)
-	svc.mu.Lock()
-	svc.lastRoutedAgent = "sage"
-	svc.mu.Unlock()
+	svc := New([]bridge.Bridge{sender}, "alice", "sage", "", tmpDir, nil)
 
 	svc.handleConciergeDown(context.Background(), "sage")
 
 	svc.mu.Lock()
 	concierge := svc.concierge
-	lastRouted := svc.lastRoutedAgent
 	svc.mu.Unlock()
 
-	if concierge != "" {
-		t.Errorf("expected concierge to be cleared, got %q", concierge)
-	}
-	if lastRouted != "" {
-		t.Errorf("expected lastRoutedAgent to be cleared, got %q", lastRouted)
+	// Concierge name should be KEPT (not cleared) for auto-reassociation.
+	if concierge != "sage" {
+		t.Errorf("expected concierge to be kept as 'sage', got %q", concierge)
 	}
 
 	msgs := sender.Messages()
@@ -1082,7 +1087,7 @@ func TestHandleConciergeDown_ClearsConcierge(t *testing.T) {
 func TestHandleInbound_SetsLastRoutedAgent(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	_ = newMockAgent(t, tmpDir, "coder-1")
-	svc := New(nil, "", tmpDir, "alice", nil)
+	svc := New(nil, "alice", "", "", tmpDir, nil)
 
 	svc.handleInbound("coder-1", "hello")
 
@@ -1097,7 +1102,7 @@ func TestHandleInbound_SetsLastRoutedAgent(t *testing.T) {
 func TestHandleInbound_DoesNotSetLastRoutedOnFailure(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "", "", tmpDir, nil)
 
 	// Target agent doesn't exist — should fail.
 	svc.handleInbound("nonexistent", "hello")
@@ -1116,7 +1121,7 @@ func TestSocketSetConcierge(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender := &mockSender{name: "telegram"}
 	_ = newMockStatusAgent(t, tmpDir, "sage", "idle")
-	svc := New([]bridge.Bridge{sender}, "", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "", "", tmpDir, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1164,7 +1169,7 @@ func TestSocketSetConcierge(t *testing.T) {
 func TestSocketRemoveConcierge(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "sage", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "sage", "", tmpDir, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1212,7 +1217,7 @@ func TestSocketRemoveConcierge(t *testing.T) {
 
 func TestStartupMessage_WithConcierge(t *testing.T) {
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "sage", t.TempDir(), "alice", []string{"status", "help"})
+	svc := New([]bridge.Bridge{sender}, "alice", "sage", "", t.TempDir(), []string{"status", "help"})
 
 	svc.sendStartupMessage(context.Background())
 
@@ -1234,7 +1239,7 @@ func TestStartupMessage_WithConcierge(t *testing.T) {
 
 func TestStartupMessage_NoAgents(t *testing.T) {
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "", t.TempDir(), "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "", "", t.TempDir(), nil)
 
 	svc.sendStartupMessage(context.Background())
 
@@ -1253,7 +1258,7 @@ func TestStartupMessage_NoConciergeWithAgents(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, socketdir.Format(socketdir.TypeAgent, "coder-1")), nil, 0o600)
 
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "", "", tmpDir, nil)
 
 	svc.sendStartupMessage(context.Background())
 
@@ -1277,7 +1282,7 @@ func TestTypingLoop_DetectsConciergeDown(t *testing.T) {
 	agent := newMockStatusAgent(t, tmpDir, "sage", "active")
 
 	sender := &mockSender{name: "telegram"}
-	svc := New([]bridge.Bridge{sender}, "sage", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender}, "alice", "sage", "", tmpDir, nil)
 	svc.typingTickInterval = 50 * time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1295,12 +1300,17 @@ func TestTypingLoop_DetectsConciergeDown(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	cancel()
 
-	// Concierge should be cleared.
+	// Concierge name should be KEPT (not cleared) for auto-reassociation,
+	// but conciergeAlive should be false.
 	svc.mu.Lock()
 	got := svc.concierge
+	alive := svc.conciergeAlive
 	svc.mu.Unlock()
-	if got != "" {
-		t.Errorf("expected concierge to be cleared after agent down, got %q", got)
+	if got != "sage" {
+		t.Errorf("expected concierge name to be kept as 'sage', got %q", got)
+	}
+	if alive {
+		t.Error("expected conciergeAlive to be false after agent down")
 	}
 
 	// Should have sent a status message about concierge stopping.
@@ -1325,7 +1335,7 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	sender := &mockSender{name: "telegram"}
 	_ = newMockStatusAgent(t, tmpDir, "sage", "idle")
-	svc := New([]bridge.Bridge{sender}, "", tmpDir, "alice", []string{"status"})
+	svc := New([]bridge.Bridge{sender}, "alice", "", "", tmpDir, []string{"status"})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1419,7 +1429,7 @@ func TestIntegration_ConciergeDownFallthrough(t *testing.T) {
 	conciergeAgent := newMockStatusAgent(t, tmpDir, "concierge", "active")
 	fallback := newMockAgent(t, tmpDir, "fallback")
 
-	svc := New([]bridge.Bridge{sender, recv}, "concierge", tmpDir, "alice", nil)
+	svc := New([]bridge.Bridge{sender, recv}, "alice", "concierge", "", tmpDir, nil)
 	svc.typingTickInterval = 50 * time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1487,7 +1497,7 @@ func TestIntegration_TypingRoutingChain(t *testing.T) {
 	_ = newMockAgent(t, tmpDir, "coder-1")
 	_ = newMockStatusAgent(t, tmpDir, "new-concierge", "idle")
 
-	svc := New(nil, "concierge", tmpDir, "alice", nil)
+	svc := New(nil, "alice", "concierge", "", tmpDir, nil)
 
 	// Route an inbound message to coder-1 (explicit target).
 	svc.handleInbound("coder-1", "build this")
@@ -1532,7 +1542,7 @@ func TestIntegration_TypingRoutingChain(t *testing.T) {
 func TestHandleInbound_ExpectsResponse_RegistersTriggerAndAnnotates(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	agent := newMockAgent(t, tmpDir, "myagent")
-	svc := New(nil, "concierge", tmpDir, "alice", nil, ServiceOpts{ExpectsResponse: true})
+	svc := New(nil, "alice", "concierge", "", tmpDir, nil, ServiceOpts{ExpectsResponse: true})
 
 	svc.handleInbound("myagent", "hello agent")
 
@@ -1588,7 +1598,7 @@ func TestHandleInbound_ExpectsResponse_RegistersTriggerAndAnnotates(t *testing.T
 func TestHandleInbound_ExpectsResponse_Disabled(t *testing.T) {
 	tmpDir := shortTempDir(t)
 	agent := newMockAgent(t, tmpDir, "myagent")
-	svc := New(nil, "concierge", tmpDir, "alice", nil) // no opts — expects-response disabled
+	svc := New(nil, "alice", "concierge", "", tmpDir, nil) // no opts — expects-response disabled
 
 	svc.handleInbound("myagent", "hello agent")
 
@@ -1650,7 +1660,7 @@ func TestHandleInbound_ExpectsResponse_TriggerFailStillDelivers(t *testing.T) {
 		wg.Wait()
 	})
 
-	svc := New(nil, "concierge", tmpDir, "alice", nil, ServiceOpts{ExpectsResponse: true})
+	svc := New(nil, "alice", "concierge", "", tmpDir, nil, ServiceOpts{ExpectsResponse: true})
 
 	svc.handleInbound("myagent", "hello despite trigger fail")
 

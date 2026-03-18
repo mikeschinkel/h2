@@ -36,14 +36,15 @@ func TestLoadFrom_ValidYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 
-	yaml := `users:
-  dcosson:
-    bridges:
-      telegram:
-        bot_token: "123456:ABC-DEF"
-        chat_id: 789
-      macos_notify:
-        enabled: true
+	yaml := `bridges:
+  personal:
+    telegram:
+      bot_token: "123456:ABC-DEF"
+      chat_id: 789
+    macos_notify:
+      enabled: true
+users:
+  dcosson: {}
 `
 	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
 		t.Fatal(err)
@@ -54,25 +55,25 @@ func TestLoadFrom_ValidYAML(t *testing.T) {
 		t.Fatalf("LoadFrom: %v", err)
 	}
 
-	u, ok := cfg.Users["dcosson"]
+	bc, ok := cfg.Bridges["personal"]
 	if !ok {
-		t.Fatal("expected user dcosson")
+		t.Fatal("expected bridge config 'personal'")
 	}
 
-	if u.Bridges.Telegram == nil {
+	if bc.Telegram == nil {
 		t.Fatal("expected telegram config")
 	}
-	if u.Bridges.Telegram.BotToken != "123456:ABC-DEF" {
-		t.Errorf("bot_token = %q, want %q", u.Bridges.Telegram.BotToken, "123456:ABC-DEF")
+	if bc.Telegram.BotToken != "123456:ABC-DEF" {
+		t.Errorf("bot_token = %q, want %q", bc.Telegram.BotToken, "123456:ABC-DEF")
 	}
-	if u.Bridges.Telegram.ChatID != 789 {
-		t.Errorf("chat_id = %d, want 789", u.Bridges.Telegram.ChatID)
+	if bc.Telegram.ChatID != 789 {
+		t.Errorf("chat_id = %d, want 789", bc.Telegram.ChatID)
 	}
 
-	if u.Bridges.MacOSNotify == nil {
+	if bc.MacOSNotify == nil {
 		t.Fatal("expected macos_notify config")
 	}
-	if !u.Bridges.MacOSNotify.Enabled {
+	if !bc.MacOSNotify.Enabled {
 		t.Error("expected macos_notify.enabled = true")
 	}
 }
@@ -108,15 +109,14 @@ func TestLoadFrom_AllowedCommands_Valid(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 
-	data := `users:
-  dcosson:
-    bridges:
-      telegram:
-        bot_token: "tok"
-        chat_id: 1
-        allowed_commands:
-          - h2
-          - bd
+	data := `bridges:
+  personal:
+    telegram:
+      bot_token: "tok"
+      chat_id: 1
+      allowed_commands:
+        - h2
+        - bd
 `
 	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
 		t.Fatal(err)
@@ -127,7 +127,7 @@ func TestLoadFrom_AllowedCommands_Valid(t *testing.T) {
 		t.Fatalf("LoadFrom: %v", err)
 	}
 
-	cmds := cfg.Users["dcosson"].Bridges.Telegram.AllowedCommands
+	cmds := cfg.Bridges["personal"].Telegram.AllowedCommands
 	if len(cmds) != 2 || cmds[0] != "h2" || cmds[1] != "bd" {
 		t.Errorf("AllowedCommands = %v, want [h2 bd]", cmds)
 	}
@@ -149,13 +149,12 @@ func TestLoadFrom_AllowedCommands_Invalid(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "config.yaml")
 
-			data := `users:
-  dcosson:
-    bridges:
-      telegram:
-        bot_token: "tok"
-        chat_id: 1
-        allowed_commands: ` + tt.cmds + "\n"
+			data := `bridges:
+  personal:
+    telegram:
+      bot_token: "tok"
+      chat_id: 1
+      allowed_commands: ` + tt.cmds + "\n"
 			if err := os.WriteFile(path, []byte(data), 0644); err != nil {
 				t.Fatal(err)
 			}
@@ -172,12 +171,11 @@ func TestLoadFrom_AllowedCommands_NotSet(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 
-	data := `users:
-  dcosson:
-    bridges:
-      telegram:
-        bot_token: "tok"
-        chat_id: 1
+	data := `bridges:
+  personal:
+    telegram:
+      bot_token: "tok"
+      chat_id: 1
 `
 	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
 		t.Fatal(err)
@@ -188,7 +186,7 @@ func TestLoadFrom_AllowedCommands_NotSet(t *testing.T) {
 		t.Fatalf("LoadFrom: %v", err)
 	}
 
-	cmds := cfg.Users["dcosson"].Bridges.Telegram.AllowedCommands
+	cmds := cfg.Bridges["personal"].Telegram.AllowedCommands
 	if len(cmds) != 0 {
 		t.Errorf("AllowedCommands = %v, want empty", cmds)
 	}
@@ -210,15 +208,8 @@ func TestLoadFrom_NoBridges(t *testing.T) {
 		t.Fatalf("LoadFrom: %v", err)
 	}
 
-	u := cfg.Users["alice"]
-	if u == nil {
-		t.Fatal("expected user alice")
-	}
-	if u.Bridges.Telegram != nil {
-		t.Error("expected nil telegram config")
-	}
-	if u.Bridges.MacOSNotify != nil {
-		t.Error("expected nil macos_notify config")
+	if len(cfg.Bridges) != 0 {
+		t.Errorf("expected no bridges, got %d", len(cfg.Bridges))
 	}
 }
 
@@ -226,13 +217,12 @@ func TestLoadFrom_ExpectsResponse(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 
-	data := `users:
-  alice:
-    bridges:
-      telegram:
-        bot_token: "tok"
-        chat_id: 1
-        expects_response: true
+	data := `bridges:
+  personal:
+    telegram:
+      bot_token: "tok"
+      chat_id: 1
+      expects_response: true
 `
 	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
 		t.Fatal(err)
@@ -243,9 +233,72 @@ func TestLoadFrom_ExpectsResponse(t *testing.T) {
 		t.Fatalf("LoadFrom: %v", err)
 	}
 
-	tc := cfg.Users["alice"].Bridges.Telegram
+	tc := cfg.Bridges["personal"].Telegram
 	if !tc.ExpectsResponse {
 		t.Error("expected ExpectsResponse=true")
+	}
+}
+
+func TestLoadFrom_MultipleBridges(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	data := `bridges:
+  personal:
+    telegram:
+      bot_token: "tok1"
+      chat_id: 1
+  work:
+    telegram:
+      bot_token: "tok2"
+      chat_id: 2
+`
+	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+
+	if len(cfg.Bridges) != 2 {
+		t.Fatalf("expected 2 bridges, got %d", len(cfg.Bridges))
+	}
+	if cfg.Bridges["personal"].Telegram.BotToken != "tok1" {
+		t.Errorf("personal bot_token = %q, want tok1", cfg.Bridges["personal"].Telegram.BotToken)
+	}
+	if cfg.Bridges["work"].Telegram.BotToken != "tok2" {
+		t.Errorf("work bot_token = %q, want tok2", cfg.Bridges["work"].Telegram.BotToken)
+	}
+}
+
+func TestLookupBridge(t *testing.T) {
+	cfg := &Config{
+		Bridges: map[string]*BridgesConfig{
+			"personal": {Telegram: &TelegramConfig{BotToken: "tok"}},
+		},
+	}
+
+	bc, err := cfg.LookupBridge("personal")
+	if err != nil {
+		t.Fatalf("LookupBridge: %v", err)
+	}
+	if bc.Telegram.BotToken != "tok" {
+		t.Errorf("BotToken = %q, want tok", bc.Telegram.BotToken)
+	}
+
+	_, err = cfg.LookupBridge("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent bridge")
+	}
+}
+
+func TestLookupBridge_NoBridges(t *testing.T) {
+	cfg := &Config{}
+	_, err := cfg.LookupBridge("anything")
+	if err == nil {
+		t.Fatal("expected error when no bridges configured")
 	}
 }
 

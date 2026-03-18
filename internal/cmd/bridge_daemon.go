@@ -14,37 +14,42 @@ import (
 )
 
 func newBridgeDaemonCmd() *cobra.Command {
-	var forUser string
+	var bridgeName string
 	var concierge string
+	var pod string
 
 	cmd := &cobra.Command{
 		Use:    "_bridge-service",
 		Short:  "Run the bridge service daemon (internal)",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if bridgeName == "" {
+				return fmt.Errorf("--bridge is required")
+			}
+
 			cfg, err := config.Load()
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
 
-			user, userCfg, err := resolveUser(cfg, forUser)
+			bc, err := cfg.LookupBridge(bridgeName)
 			if err != nil {
 				return err
 			}
 
-			bridges := bridgeservice.FromConfig(&userCfg.Bridges)
+			bridges := bridgeservice.FromConfig(bc)
 			if len(bridges) == 0 {
-				return fmt.Errorf("no bridges configured for user %q", user)
+				return fmt.Errorf("no bridges configured for %q", bridgeName)
 			}
 
 			var allowedCommands []string
 			var opts bridgeservice.ServiceOpts
-			if userCfg.Bridges.Telegram != nil {
-				allowedCommands = userCfg.Bridges.Telegram.AllowedCommands
-				opts.ExpectsResponse = userCfg.Bridges.Telegram.ExpectsResponse
+			if bc.Telegram != nil {
+				allowedCommands = bc.Telegram.AllowedCommands
+				opts.ExpectsResponse = bc.Telegram.ExpectsResponse
 			}
 
-			svc := bridgeservice.New(bridges, concierge, socketdir.Dir(), user, allowedCommands, opts)
+			svc := bridgeservice.New(bridges, bridgeName, concierge, pod, socketdir.Dir(), allowedCommands, opts)
 
 			ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
@@ -53,8 +58,9 @@ func newBridgeDaemonCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&forUser, "for", "", "Which user's bridge config to load")
+	cmd.Flags().StringVar(&bridgeName, "bridge", "", "Named bridge config to load")
 	cmd.Flags().StringVar(&concierge, "concierge", "", "Concierge session name")
+	cmd.Flags().StringVar(&pod, "pod", "", "Pod name this bridge belongs to")
 
 	return cmd
 }

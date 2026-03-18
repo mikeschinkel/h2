@@ -672,7 +672,7 @@ agents:
   - name: tester
     role: default
 `
-	os.WriteFile(filepath.Join(h2Root, "pods", "templates", "simple.yaml"), []byte(tmplContent), 0o644)
+	os.WriteFile(filepath.Join(h2Root, "pods", "simple.yaml"), []byte(tmplContent), 0o644)
 
 	// Create the default role.
 	roleContent := "role_name: default\ninstructions: |\n  Do work.\n"
@@ -712,7 +712,7 @@ agents:
     role: default
     count: 3
 `
-	os.WriteFile(filepath.Join(h2Root, "pods", "templates", "counted.yaml"), []byte(tmplContent), 0o644)
+	os.WriteFile(filepath.Join(h2Root, "pods", "counted.yaml"), []byte(tmplContent), 0o644)
 
 	roleContent := "role_name: default\ninstructions: |\n  Do work.\n"
 	os.WriteFile(filepath.Join(h2Root, "roles", "default.yaml"), []byte(roleContent), 0o644)
@@ -740,7 +740,7 @@ agents:
 	}
 }
 
-func TestPodDryRun_PodScopedRole(t *testing.T) {
+func TestPodDryRun_MultipleRoles(t *testing.T) {
 	h2Root := setupPodTestEnv(t)
 
 	tmplContent := `pod_name: scope-test
@@ -750,13 +750,12 @@ agents:
   - name: agent-b
     role: default
 `
-	os.WriteFile(filepath.Join(h2Root, "pods", "templates", "scoped.yaml"), []byte(tmplContent), 0o644)
+	os.WriteFile(filepath.Join(h2Root, "pods", "scoped.yaml"), []byte(tmplContent), 0o644)
 
-	// Pod-scoped role.
-	podRoleContent := "role_name: special\ninstructions: |\n  Pod-scoped instructions.\n"
-	os.WriteFile(filepath.Join(h2Root, "pods", "roles", "special.yaml"), []byte(podRoleContent), 0o644)
+	// Global roles.
+	specialContent := "role_name: special\ninstructions: |\n  Special instructions.\n"
+	os.WriteFile(filepath.Join(h2Root, "roles", "special.yaml"), []byte(specialContent), 0o644)
 
-	// Global role.
 	globalRoleContent := "role_name: default\ninstructions: |\n  Global instructions.\n"
 	os.WriteFile(filepath.Join(h2Root, "roles", "default.yaml"), []byte(globalRoleContent), 0o644)
 
@@ -768,8 +767,7 @@ agents:
 		}
 	})
 
-	// agent-a should show pod scope, agent-b should show global scope.
-	// Split output by agent sections.
+	// Both agents should resolve to global roles.
 	sections := strings.Split(output, "--- Agent")
 	if len(sections) < 3 {
 		t.Fatalf("expected 2 agent sections, got %d sections", len(sections)-1)
@@ -778,8 +776,8 @@ agents:
 	agentASection := sections[1]
 	agentBSection := sections[2]
 
-	if !strings.Contains(agentASection, "Role Scope: pod") {
-		t.Errorf("agent-a should have pod role scope, got:\n%s", agentASection)
+	if !strings.Contains(agentASection, "Role Scope: global") {
+		t.Errorf("agent-a should have global role scope, got:\n%s", agentASection)
 	}
 	if !strings.Contains(agentBSection, "Role Scope: global") {
 		t.Errorf("agent-b should have global role scope, got:\n%s", agentBSection)
@@ -796,7 +794,7 @@ agents:
     vars:
       team: backend
 `
-	os.WriteFile(filepath.Join(h2Root, "pods", "templates", "withvars.yaml"), []byte(tmplContent), 0o644)
+	os.WriteFile(filepath.Join(h2Root, "pods", "withvars.yaml"), []byte(tmplContent), 0o644)
 
 	roleContent := "role_name: default\ninstructions: |\n  Do work.\n"
 	os.WriteFile(filepath.Join(h2Root, "roles", "default.yaml"), []byte(roleContent), 0o644)

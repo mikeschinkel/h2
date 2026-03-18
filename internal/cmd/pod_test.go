@@ -36,8 +36,7 @@ func setupPodTestEnv(t *testing.T) string {
 	h2Root := filepath.Join(tmpDir, ".h2")
 	os.MkdirAll(filepath.Join(h2Root, "sockets"), 0o700)
 	os.MkdirAll(filepath.Join(h2Root, "roles"), 0o755)
-	os.MkdirAll(filepath.Join(h2Root, "pods", "roles"), 0o755)
-	os.MkdirAll(filepath.Join(h2Root, "pods", "templates"), 0o755)
+	os.MkdirAll(filepath.Join(h2Root, "pods"), 0o755)
 	os.MkdirAll(filepath.Join(h2Root, "sessions"), 0o755)
 	os.MkdirAll(filepath.Join(h2Root, "claude-config", "default"), 0o755)
 	config.WriteMarker(h2Root)
@@ -69,7 +68,7 @@ agents:
   - name: tester
     role: default
 `
-	os.WriteFile(filepath.Join(h2Root, "pods", "templates", "backend.yaml"), []byte(tmplContent), 0o644)
+	os.WriteFile(filepath.Join(h2Root, "pods", "backend.yaml"), []byte(tmplContent), 0o644)
 
 	var buf bytes.Buffer
 	cmd := newPodListCmd()
@@ -298,7 +297,7 @@ agents:
   - name: worker
     role: default
 `
-	os.WriteFile(filepath.Join(h2Root, "pods", "templates", "needsvar.yaml"), []byte(tmplContent), 0o644)
+	os.WriteFile(filepath.Join(h2Root, "pods", "needsvar.yaml"), []byte(tmplContent), 0o644)
 
 	cmd := newPodLaunchCmd()
 	cmd.SetArgs([]string{"needsvar"})
@@ -330,7 +329,7 @@ agents:
   - name: "{{ .Var.prefix }}-worker"
     role: default
 `
-	os.WriteFile(filepath.Join(h2Root, "pods", "templates", "vartest.yaml"), []byte(tmplContent), 0o644)
+	os.WriteFile(filepath.Join(h2Root, "pods", "vartest.yaml"), []byte(tmplContent), 0o644)
 
 	// Create the default role so it can be loaded.
 	roleContent := "role_name: default\ninstructions: |\n  test\n"
@@ -376,7 +375,7 @@ agents:
   - name: "{{ .Var.prefix }}-worker"
     role: default
 `
-	os.WriteFile(filepath.Join(h2Root, "pods", "templates", "override.yaml"), []byte(tmplContent), 0o644)
+	os.WriteFile(filepath.Join(h2Root, "pods", "override.yaml"), []byte(tmplContent), 0o644)
 
 	roleContent := "role_name: default\ninstructions: |\n  test\n"
 	os.WriteFile(filepath.Join(h2Root, "roles", "default.yaml"), []byte(roleContent), 0o644)
