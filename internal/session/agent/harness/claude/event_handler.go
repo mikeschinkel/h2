@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -262,8 +263,10 @@ func (h *EventHandler) HandleInterrupt() bool {
 
 // OnSessionLogLine parses one Claude session JSONL line.
 func (h *EventHandler) OnSessionLogLine(line []byte) {
-	if ev, ok := parseSessionLine(line); ok {
-		h.emit(ev)
+	if events, ok := parseSessionLine(line); ok {
+		for _, ev := range events {
+			h.emit(ev)
+		}
 	}
 }
 
@@ -338,39 +341,161 @@ func extractReason(payload json.RawMessage) string {
 // --- session log parsing ---
 
 type sessionLogEntry struct {
-	Type    string          `json:"type"`
-	Message json.RawMessage `json:"message,omitempty"`
+	Type              string          `json:"type"`
+	Message           json.RawMessage `json:"message,omitempty"`
+	Error             string          `json:"error,omitempty"`
+	IsApiErrorMessage bool            `json:"isApiErrorMessage,omitempty"`
 }
 
+// sessionMessage handles Claude's message format where content can be
+// either a plain string or an array of content blocks.
 type sessionMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content,omitempty"`
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content,omitempty"`
 }
 
-func parseSessionLine(line []byte) (monitor.AgentEvent, bool) {
+// contentBlock represents one element in the content array.
+type contentBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
+
+// extractContent returns the text content from a sessionMessage.
+// Handles both string content and array-of-blocks content.
+func (m *sessionMessage) extractContent() string {
+	if len(m.Content) == 0 {
+		return ""
+	}
+	// Try plain string first.
+	var s string
+	if err := json.Unmarshal(m.Content, &s); err == nil {
+		return s
+	}
+	// Try array of content blocks.
+	var blocks []contentBlock
+	if err := json.Unmarshal(m.Content, &blocks); err == nil {
+		var parts []string
+		for _, b := range blocks {
+			if b.Type == "text" && b.Text != "" {
+				parts = append(parts, b.Text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	return ""
+}
+
+// resetsPattern matches Claude Code's synthetic rate limit message format:
+//
+//	"resets 12pm (America/Los_Angeles)"
+//	"resets 5:30am (UTC)"
+var resetsPattern = regexp.MustCompile(`resets\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s+\(([^)]+)\)`)
+
+// parseSessionLine parses one Claude session JSONL line into zero or more
+// AgentEvents. It returns up to two events: an agent message and/or a
+// usage limit info event.
+func parseSessionLine(line []byte) ([]monitor.AgentEvent, bool) {
 	var entry sessionLogEntry
 	if err := json.Unmarshal(line, &entry); err != nil {
-		return monitor.AgentEvent{}, false
+		return nil, false
 	}
 	if entry.Type != "assistant" {
-		return monitor.AgentEvent{}, false
+		return nil, false
 	}
 
 	var msg sessionMessage
 	if len(entry.Message) > 0 {
 		if err := json.Unmarshal(entry.Message, &msg); err != nil {
-			return monitor.AgentEvent{}, false
+			return nil, false
 		}
 	}
-	if msg.Content == "" {
-		return monitor.AgentEvent{}, false
+	content := msg.extractContent()
+	if content == "" {
+		return nil, false
 	}
 
-	return monitor.AgentEvent{
+	now := time.Now()
+	var events []monitor.AgentEvent
+
+	// Check for rate limit synthetic messages.
+	if entry.Error == "rate_limit" || entry.IsApiErrorMessage {
+		if resetsAt, ok := parseResetsAt(content, now); ok {
+			events = append(events, monitor.AgentEvent{
+				Type:      monitor.EventUsageLimitInfo,
+				Timestamp: now,
+				Data: monitor.UsageLimitData{
+					ResetsAt: resetsAt,
+					Message:  content,
+				},
+			})
+		}
+	}
+
+	// Always emit the agent message.
+	events = append(events, monitor.AgentEvent{
 		Type:      monitor.EventAgentMessage,
-		Timestamp: time.Now(),
-		Data:      monitor.AgentMessageData{Content: msg.Content},
-	}, true
+		Timestamp: now,
+		Data:      monitor.AgentMessageData{Content: content},
+	})
+
+	return events, true
+}
+
+// parseResetsAt extracts an absolute reset time from a message like
+// "You've hit your limit · resets 12pm (America/Los_Angeles)".
+// The reference time is used to resolve the date (next occurrence of the
+// given hour in the given timezone).
+func parseResetsAt(message string, reference time.Time) (time.Time, bool) {
+	m := resetsPattern.FindStringSubmatch(message)
+	if m == nil {
+		return time.Time{}, false
+	}
+	timeStr := strings.TrimSpace(m[1])
+	tzName := m[2]
+
+	loc, err := time.LoadLocation(tzName)
+	if err != nil {
+		return time.Time{}, false
+	}
+
+	// Parse the time-of-day. Accept "12pm", "5am", "5:30pm".
+	var hour, min int
+	var isPM bool
+	if strings.Contains(timeStr, ":") {
+		// "5:30pm" format
+		parts := strings.SplitN(strings.TrimRight(timeStr, "apmAPM"), ":", 2)
+		hour = atoiSafe(parts[0])
+		min = atoiSafe(parts[1])
+		isPM = strings.HasSuffix(strings.ToLower(timeStr), "pm")
+	} else {
+		// "12pm" format
+		numStr := strings.TrimRight(strings.ToLower(timeStr), "apm")
+		hour = atoiSafe(numStr)
+		isPM = strings.HasSuffix(strings.ToLower(timeStr), "pm")
+	}
+
+	// Convert 12-hour to 24-hour.
+	if isPM && hour != 12 {
+		hour += 12
+	} else if !isPM && hour == 12 {
+		hour = 0
+	}
+
+	// Build the candidate time in the target timezone.
+	refInTZ := reference.In(loc)
+	candidate := time.Date(refInTZ.Year(), refInTZ.Month(), refInTZ.Day(), hour, min, 0, 0, loc)
+
+	// If the candidate is in the past, it must be tomorrow.
+	if !candidate.After(reference) {
+		candidate = candidate.Add(24 * time.Hour)
+	}
+
+	return candidate, true
+}
+
+func atoiSafe(s string) int {
+	v, _ := strconv.Atoi(strings.TrimSpace(s))
+	return v
 }
 
 // --- OTEL JSON types + helpers ---

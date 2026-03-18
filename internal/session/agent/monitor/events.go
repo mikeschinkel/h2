@@ -25,6 +25,7 @@ const (
 	EventAgentMessage
 	EventStateChange
 	EventSessionEnded
+	EventUsageLimitInfo
 )
 
 // String returns the event type name.
@@ -48,6 +49,8 @@ func (t AgentEventType) String() string {
 		return "state_change"
 	case EventSessionEnded:
 		return "session_ended"
+	case EventUsageLimitInfo:
+		return "usage_limit_info"
 	default:
 		return "unknown"
 	}
@@ -121,4 +124,10 @@ type SessionEndedData struct {
 type StateChangeData struct {
 	State    State
 	SubState SubState
+}
+
+// UsageLimitData is the payload for EventUsageLimitInfo.
+type UsageLimitData struct {
+	ResetsAt time.Time // absolute time when the usage limit resets
+	Message  string    // raw message from the harness (e.g. "resets 12pm (America/Los_Angeles)")
 }

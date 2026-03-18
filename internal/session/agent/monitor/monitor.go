@@ -39,6 +39,9 @@ type AgentMonitor struct {
 	blockedOnPermission bool
 	blockedToolName     string
 
+	usageLimitResetsAt *time.Time
+	usageLimitMessage  string
+
 	// subscribers receive a copy of every event processed by the monitor.
 	// Protected by subscribersMu (separate from mu to avoid contention).
 	subscribersMu sync.Mutex
@@ -179,6 +182,17 @@ func (m *AgentMonitor) processEvent(ev AgentEvent) {
 				m.blockedOnPermission = false
 				m.blockedToolName = ""
 			}
+			// Clear usage limit info when leaving usage_limit state.
+			if data.SubState != SubStateUsageLimit {
+				m.usageLimitResetsAt = nil
+				m.usageLimitMessage = ""
+			}
+		}
+
+	case EventUsageLimitInfo:
+		if data, ok := ev.Data.(UsageLimitData); ok {
+			m.usageLimitResetsAt = &data.ResetsAt
+			m.usageLimitMessage = data.Message
 		}
 
 	case EventSessionEnded:
@@ -348,6 +362,20 @@ type ActivitySnapshot struct {
 	ToolUseCount        int64
 	BlockedOnPermission bool
 	BlockedToolName     string
+}
+
+// UsageLimitResetsAt returns the time at which the usage limit resets, if known.
+func (m *AgentMonitor) UsageLimitResetsAt() *time.Time {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.usageLimitResetsAt
+}
+
+// UsageLimitMessage returns the raw rate limit message from the harness.
+func (m *AgentMonitor) UsageLimitMessage() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.usageLimitMessage
 }
 
 // Activity returns a snapshot of activity fields derived from normalized events.

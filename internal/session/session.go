@@ -705,6 +705,16 @@ func (s *Session) ActivitySnapshot() monitor.ActivitySnapshot {
 	return s.monitor.Activity()
 }
 
+// UsageLimitResetsAt returns the time when the usage limit resets, if known.
+func (s *Session) UsageLimitResetsAt() *time.Time {
+	return s.monitor.UsageLimitResetsAt()
+}
+
+// UsageLimitMessage returns the raw rate limit message from the harness.
+func (s *Session) UsageLimitMessage() string {
+	return s.monitor.UsageLimitMessage()
+}
+
 // SubmitInput enqueues user-typed input for priority-aware delivery.
 func (s *Session) SubmitInput(text string, priority message.Priority) {
 	msg := &message.Message{

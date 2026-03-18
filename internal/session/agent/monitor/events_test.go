@@ -35,6 +35,9 @@ func TestAgentEventType_Values(t *testing.T) {
 	if EventSessionEnded != 8 {
 		t.Errorf("EventSessionEnded = %d, want 8", EventSessionEnded)
 	}
+	if EventUsageLimitInfo != 9 {
+		t.Errorf("EventUsageLimitInfo = %d, want 9", EventUsageLimitInfo)
+	}
 }
 
 func TestAgentEvent_PayloadTypes(t *testing.T) {
@@ -163,6 +166,7 @@ func TestAgentEventType_String(t *testing.T) {
 		{EventAgentMessage, "agent_message"},
 		{EventStateChange, "state_change"},
 		{EventSessionEnded, "session_ended"},
+		{EventUsageLimitInfo, "usage_limit_info"},
 		{AgentEventType(99), "unknown"},
 	}
 	for _, tt := range tests {

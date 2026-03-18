@@ -156,6 +156,10 @@ type AgentInfo struct {
 	ToolUseCount        int64  `json:"tool_use_count,omitempty"`
 	BlockedOnPermission bool   `json:"blocked_on_permission,omitempty"`
 	BlockedToolName     string `json:"blocked_tool_name,omitempty"`
+
+	// Usage limit info (populated when sub_state is usage_limit)
+	UsageLimitResetsAt string `json:"usage_limit_resets_at,omitempty"` // RFC3339 timestamp
+	UsageLimitMessage  string `json:"usage_limit_message,omitempty"`
 }
 
 // ModelStat holds per-model cost and token breakdown.

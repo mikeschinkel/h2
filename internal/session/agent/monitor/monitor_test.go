@@ -423,6 +423,67 @@ func TestRunBlocksUntilCancelled(t *testing.T) {
 	}
 }
 
+func TestProcessEvent_UsageLimitInfo(t *testing.T) {
+	m := New()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+
+	resetsAt := time.Date(2026, 3, 12, 19, 0, 0, 0, time.UTC)
+	m.Events() <- AgentEvent{
+		Type:      EventUsageLimitInfo,
+		Timestamp: time.Now(),
+		Data:      UsageLimitData{ResetsAt: resetsAt, Message: "resets 12pm (America/Los_Angeles)"},
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	got := m.UsageLimitResetsAt()
+	if got == nil {
+		t.Fatal("UsageLimitResetsAt should not be nil")
+	}
+	if !got.Equal(resetsAt) {
+		t.Errorf("UsageLimitResetsAt = %v, want %v", *got, resetsAt)
+	}
+	if m.UsageLimitMessage() != "resets 12pm (America/Los_Angeles)" {
+		t.Errorf("UsageLimitMessage = %q", m.UsageLimitMessage())
+	}
+}
+
+func TestProcessEvent_UsageLimitInfo_ClearedOnStateChange(t *testing.T) {
+	m := New()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+
+	// Set usage limit info.
+	resetsAt := time.Date(2026, 3, 12, 19, 0, 0, 0, time.UTC)
+	m.Events() <- AgentEvent{
+		Type:      EventUsageLimitInfo,
+		Timestamp: time.Now(),
+		Data:      UsageLimitData{ResetsAt: resetsAt, Message: "test"},
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	if m.UsageLimitResetsAt() == nil {
+		t.Fatal("expected usage limit to be set")
+	}
+
+	// Transition to active/thinking — should clear usage limit.
+	m.Events() <- AgentEvent{
+		Type:      EventStateChange,
+		Timestamp: time.Now(),
+		Data:      StateChangeData{State: StateActive, SubState: SubStateThinking},
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	if m.UsageLimitResetsAt() != nil {
+		t.Error("UsageLimitResetsAt should be nil after leaving usage_limit state")
+	}
+	if m.UsageLimitMessage() != "" {
+		t.Errorf("UsageLimitMessage should be empty, got %q", m.UsageLimitMessage())
+	}
+}
+
 func TestMetrics_SnapshotIsolation(t *testing.T) {
 	m := New()
 	ctx, cancel := context.WithCancel(context.Background())

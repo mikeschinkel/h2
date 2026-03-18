@@ -432,6 +432,198 @@ func TestEventHandler_SessionLogCollector_EmitsAssistantMessages(t *testing.T) {
 	}
 }
 
+func TestEventHandler_OnSessionLogLine_RateLimitWithResetTime(t *testing.T) {
+	events := make(chan monitor.AgentEvent, 64)
+	h := NewEventHandler(events, nil)
+
+	// Replicate the real Claude Code session JSONL format for rate limit messages.
+	line, _ := json.Marshal(map[string]any{
+		"type": "assistant",
+		"message": map[string]any{
+			"role":    "assistant",
+			"model":   "<synthetic>",
+			"content": []map[string]string{{"type": "text", "text": "You've hit your limit · resets 12pm (America/Los_Angeles)"}},
+		},
+		"error":             "rate_limit",
+		"isApiErrorMessage": true,
+	})
+	h.OnSessionLogLine(line)
+
+	got := drainEvents(events, 2)
+	if len(got) < 2 {
+		t.Fatalf("expected 2 events (usage_limit_info + agent_message), got %d", len(got))
+	}
+
+	// First event should be usage limit info.
+	if got[0].Type != monitor.EventUsageLimitInfo {
+		t.Fatalf("event[0].Type = %v, want EventUsageLimitInfo", got[0].Type)
+	}
+	data := got[0].Data.(monitor.UsageLimitData)
+	if data.ResetsAt.IsZero() {
+		t.Fatal("ResetsAt should not be zero")
+	}
+	if !strings.Contains(data.Message, "resets 12pm") {
+		t.Fatalf("unexpected message: %q", data.Message)
+	}
+
+	// Verify the parsed time is in the right timezone and at noon.
+	loc, _ := time.LoadLocation("America/Los_Angeles")
+	inLA := data.ResetsAt.In(loc)
+	if inLA.Hour() != 12 || inLA.Minute() != 0 {
+		t.Fatalf("expected 12:00 PM LA time, got %v", inLA)
+	}
+
+	// Second event should be the agent message.
+	if got[1].Type != monitor.EventAgentMessage {
+		t.Fatalf("event[1].Type = %v, want EventAgentMessage", got[1].Type)
+	}
+}
+
+func TestEventHandler_OnSessionLogLine_RateLimitNoResetTime(t *testing.T) {
+	events := make(chan monitor.AgentEvent, 64)
+	h := NewEventHandler(events, nil)
+
+	// Rate limit message without the "resets Xpm (TZ)" pattern.
+	line, _ := json.Marshal(map[string]any{
+		"type": "assistant",
+		"message": map[string]any{
+			"role":    "assistant",
+			"content": []map[string]string{{"type": "text", "text": "You've hit your limit"}},
+		},
+		"error":             "rate_limit",
+		"isApiErrorMessage": true,
+	})
+	h.OnSessionLogLine(line)
+
+	// Should only get the agent message, no usage limit info.
+	got := drainEvents(events, 1)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(got))
+	}
+	if got[0].Type != monitor.EventAgentMessage {
+		t.Fatalf("event[0].Type = %v, want EventAgentMessage", got[0].Type)
+	}
+}
+
+func TestParseResetsAt(t *testing.T) {
+	loc, _ := time.LoadLocation("America/Los_Angeles")
+
+	tests := []struct {
+		name         string
+		message      string
+		ref          time.Time
+		wantOK       bool
+		wantHour     int
+		wantMin      int
+		wantTZ       string
+		wantTomorrow bool
+	}{
+		{
+			name:     "noon reset",
+			message:  "You've hit your limit · resets 12pm (America/Los_Angeles)",
+			ref:      time.Date(2026, 3, 12, 10, 0, 0, 0, loc), // 10am, before noon
+			wantOK:   true,
+			wantHour: 12,
+			wantMin:  0,
+			wantTZ:   "America/Los_Angeles",
+		},
+		{
+			name:         "noon reset but already past noon",
+			message:      "resets 12pm (America/Los_Angeles)",
+			ref:          time.Date(2026, 3, 12, 14, 0, 0, 0, loc), // 2pm, past noon
+			wantOK:       true,
+			wantHour:     12,
+			wantMin:      0,
+			wantTZ:       "America/Los_Angeles",
+			wantTomorrow: true,
+		},
+		{
+			name:     "5am reset",
+			message:  "resets 5am (UTC)",
+			ref:      time.Date(2026, 3, 12, 3, 0, 0, 0, time.UTC),
+			wantOK:   true,
+			wantHour: 5,
+			wantMin:  0,
+			wantTZ:   "UTC",
+		},
+		{
+			name:     "with minutes",
+			message:  "resets 5:30pm (America/New_York)",
+			ref:      time.Date(2026, 3, 12, 10, 0, 0, 0, time.UTC),
+			wantOK:   true,
+			wantHour: 17,
+			wantMin:  30,
+			wantTZ:   "America/New_York",
+		},
+		{
+			name:    "no match",
+			message: "Something went wrong",
+			ref:     time.Now(),
+			wantOK:  false,
+		},
+		{
+			name:    "bad timezone",
+			message: "resets 12pm (Fake/Timezone)",
+			ref:     time.Now(),
+			wantOK:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseResetsAt(tt.message, tt.ref)
+			if ok != tt.wantOK {
+				t.Fatalf("parseResetsAt() ok = %v, want %v", ok, tt.wantOK)
+			}
+			if !ok {
+				return
+			}
+
+			wantLoc, _ := time.LoadLocation(tt.wantTZ)
+			inTZ := got.In(wantLoc)
+			if inTZ.Hour() != tt.wantHour || inTZ.Minute() != tt.wantMin {
+				t.Errorf("got %v, want %d:%02d in %s", inTZ, tt.wantHour, tt.wantMin, tt.wantTZ)
+			}
+			if !got.After(tt.ref) {
+				t.Errorf("reset time %v should be after reference %v", got, tt.ref)
+			}
+			if tt.wantTomorrow {
+				refInTZ := tt.ref.In(wantLoc)
+				if inTZ.Day() == refInTZ.Day() {
+					t.Errorf("expected tomorrow, but got same day: %v", inTZ)
+				}
+			}
+		})
+	}
+}
+
+func TestEventHandler_OnSessionLogLine_ContentArrayFormat(t *testing.T) {
+	events := make(chan monitor.AgentEvent, 64)
+	h := NewEventHandler(events, nil)
+
+	// Content as array of blocks (real Claude format).
+	line, _ := json.Marshal(map[string]any{
+		"type": "assistant",
+		"message": map[string]any{
+			"role":    "assistant",
+			"content": []map[string]string{{"type": "text", "text": "Hello from array format!"}},
+		},
+	})
+	h.OnSessionLogLine(line)
+
+	select {
+	case ev := <-events:
+		if ev.Type != monitor.EventAgentMessage {
+			t.Fatalf("Type = %v, want EventAgentMessage", ev.Type)
+		}
+		if ev.Data.(monitor.AgentMessageData).Content != "Hello from array format!" {
+			t.Fatalf("unexpected content: %+v", ev.Data)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for event")
+	}
+}
+
 func drainEvents(ch chan monitor.AgentEvent, n int) []monitor.AgentEvent {
 	var events []monitor.AgentEvent
 	timeout := time.After(time.Second)

@@ -152,6 +152,7 @@ var eventTypeToString = map[monitor.AgentEventType]string{
 	monitor.EventAgentMessage:      "agent_message",
 	monitor.EventStateChange:       "state_change",
 	monitor.EventSessionEnded:      "session_ended",
+	monitor.EventUsageLimitInfo:    "usage_limit_info",
 }
 
 // stringToEventType maps string to AgentEventType.
@@ -177,6 +178,7 @@ var stringToSubState = map[string]monitor.SubState{
 	"tool_use":               monitor.SubStateToolUse,
 	"waiting_for_permission": monitor.SubStateWaitingForPermission,
 	"compacting":             monitor.SubStateCompacting,
+	"usage_limit":            monitor.SubStateUsageLimit,
 }
 
 type stateChangeLogData struct {
@@ -270,6 +272,9 @@ func unmarshalData(evType monitor.AgentEventType, raw json.RawMessage) (any, err
 		return monitor.StateChangeData{State: state, SubState: subState}, nil
 	case monitor.EventSessionEnded:
 		var d monitor.SessionEndedData
+		return d, json.Unmarshal(raw, &d)
+	case monitor.EventUsageLimitInfo:
+		var d monitor.UsageLimitData
 		return d, json.Unmarshal(raw, &d)
 	default:
 		// For event types without a known payload struct, preserve raw JSON.
