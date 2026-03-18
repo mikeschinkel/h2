@@ -207,8 +207,8 @@ type PodTemplateAgent struct {
 The pod launch flow becomes:
 1. Load and render the base role via `LoadRoleRendered(roleName, ctx)`
 2. Convert `overrides` map to `[]string` (`key=value` pairs)
-3. Call `ApplyOverrides(role, overrideSlice)`
-4. Pass the overridden role to `setupAndForkAgentQuiet()`
+3. Call `ApplyOverrides(role, overrideSlice)` to modify the role in-place
+4. Pass the overridden role **and** the override strings to `setupAndForkAgentQuiet()` — the role has already been modified, but the strings are needed for `RuntimeConfig.Overrides` metadata recording
 
 This means pod-level overrides use the exact same code path as `h2 run --override`, with the same validation and error messages.
 
@@ -254,6 +254,37 @@ type UserConfig struct {
 - Remove the `Bridges` field from `UserConfig` entirely. Old config files with user-scoped bridges will fail to parse — users must update their `config.yaml`.
 - Remove the `resolveUser()` helper in `bridge.go`; replace with `resolveBridgeConfig(cfg, name)` that looks up from the top-level map directly.
 
+#### ForkBridge interface changes
+
+The existing `ForkBridge(user, concierge string) error` is built around user-based config resolution. It must change to support named bridge configs and pod tracking:
+
+**New signature:**
+```go
+func ForkBridge(bridgeName, concierge, pod string) error
+```
+
+**Daemon command changes:**
+- Replace `--for <user>` flag with `--bridge <name>` flag
+- Add `--pod <name>` flag (empty for standalone bridges)
+- Daemon resolves config via `cfg.Bridges[bridgeName]` direct map lookup (instead of `resolveUser()`)
+- Remove `resolveUser()` entirely from the daemon path
+
+**Socket naming:**
+- Change from `bridge.<user>.sock` to `bridge.<bridgeName>.sock`
+- `stopExistingBridgeIfRunning()` updated to use bridge name instead of user name
+
+**Bridge service constructor:**
+- `New()` accepts an additional `pod string` parameter, stored in `Service.pod`
+- `buildBridgeInfo()` includes `Pod` in the returned `BridgeInfo`
+
+**BridgeInfo struct addition:**
+```go
+type BridgeInfo struct {
+    // ... existing fields ...
+    Pod string `json:"pod,omitempty"` // pod name if launched from a pod
+}
+```
+
 #### Standalone bridge create (outside pods)
 
 ```bash
@@ -273,7 +304,7 @@ When `h2 pod launch` encounters `bridges:` in the pod YAML:
    a. Check if a bridge daemon with this name is already running. If so, query its `BridgeInfo.Pod`:
       - **Same pod or no pod (standalone):** Stop the existing bridge and re-launch (idempotent restart)
       - **Different pod:** Reject with error: `bridge "personal" is already owned by pod "frontend"; stop it first or remove from this pod`
-   b. Call `bridgeservice.ForkBridge(bridgeName, concierge)` with the resolved config
+   b. Call `bridgeservice.ForkBridge(bridgeName, concierge, pod)` to fork the daemon
 3. Bridge launch happens **after** all agents are started (so concierge socket exists)
 
 #### Failure semantics
@@ -454,7 +485,8 @@ No new packages. Changes are confined to:
 |---------|---------------|
 | `internal/config` | `pods.go`, `config.go` |
 | `internal/cmd` | `pod.go`, `bridge.go`, `bridge_daemon.go` |
-| `internal/bridgeservice` | `service.go`, `fork.go` |
+| `internal/bridgeservice` | `service.go`, `fork.go`, `factory.go` |
+| `internal/session/message` | `protocol.go` (BridgeInfo.Pod field) |
 
 ## Testing
 
@@ -493,7 +525,7 @@ No new packages. Changes are confined to:
 - **Override precedence**: Pod YAML overrides vs role defaults, verify overrides win
 - **Partial bridge failure**: Pod with 2 bridges, second fork fails. Verify: agents still running, first bridge still running, non-zero exit code, stderr shows partial-failure summary. Re-run `pod launch` and verify only the failed bridge is retried.
 
-## Review Disposition
+## Round 1 Review Disposition
 
 | # | Reviewer | Severity | Summary | Disposition | Notes |
 |---|----------|----------|---------|-------------|-------|
@@ -501,3 +533,10 @@ No new packages. Changes are confined to:
 | 2 | h2-reviewer | P1 | Bridge restart semantics can terminate unrelated bridge daemons | Incorporated | §4 now specifies pod-ownership check: same-pod restarts, different-pod rejects with error |
 | 3 | h2-reviewer | P1 | Missing failure/rollback semantics for partial pod launch | Incorporated | §4 adds explicit no-rollback policy, non-zero exit on bridge failure, partial-failure summary, idempotent retry. Integration test added. |
 | 4 | h2-reviewer | P2 | Concierge liveness state transitions underspecified for manual changes | Incorporated | §5 adds state transition rules for set/remove-concierge with synchronous probe. Unit tests added. |
+
+## Seam Review Disposition
+
+| # | Reviewer | Severity | Summary | Disposition | Notes |
+|---|----------|----------|---------|-------------|-------|
+| 1 | h2-coder-2 | P1 | ForkBridge interface incompatible with named bridge configs | Incorporated | §3 now specifies new ForkBridge(bridgeName, concierge, pod) signature, daemon flag changes, socket naming, BridgeInfo.Pod field |
+| 2 | h2-coder-2 | P2 | Override strings should be passed through for RuntimeConfig recording | Incorporated | §2 step 4 updated to pass override strings for metadata recording |
