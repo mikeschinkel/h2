@@ -23,6 +23,12 @@ func DefaultConfig() LayoutConfig {
 	}
 }
 
+// ScreenSize holds terminal dimensions for a tab.
+type ScreenSize struct {
+	Cols int
+	Rows int
+}
+
 // PaneAssignment maps an agent to a grid position with computed dimensions.
 type PaneAssignment struct {
 	AgentName string
@@ -59,9 +65,7 @@ func (t TabLayout) RowsInCol(col int) int {
 
 // TileLayout holds the complete layout across one or more tabs.
 type TileLayout struct {
-	Tabs       []TabLayout
-	ScreenCols int // original terminal width
-	ScreenRows int // original terminal height
+	Tabs []TabLayout
 }
 
 // TotalPanes returns the total number of panes across all tabs.
@@ -79,21 +83,33 @@ func (l TileLayout) TotalPanes() int {
 // column before moving to the next column left-to-right. When a tab's grid
 // is full, overflow agents go to additional tabs.
 //
-// screenCols/screenRows is the current terminal size (may already be a
-// sub-pane of a larger window). Pane dimensions are computed from the grid.
-func ComputeLayout(agents []string, screenCols, screenRows int, cfg LayoutConfig) TileLayout {
+// currentSize is the terminal size of the pane where the command is run
+// (may be a sub-split). overflowSize is the size of new tabs created for
+// overflow agents (typically the full window size). If overflowSize is zero,
+// it defaults to currentSize.
+func ComputeLayout(agents []string, currentSize, overflowSize ScreenSize, cfg LayoutConfig) TileLayout {
 	if len(agents) == 0 {
-		return TileLayout{ScreenCols: screenCols, ScreenRows: screenRows}
+		return TileLayout{}
 	}
 
-	maxCols := max(1, screenCols/cfg.MinPaneWidth)
-	maxRows := max(1, screenRows/cfg.MinPaneHeight)
-	maxPerTab := maxCols * maxRows
+	if overflowSize.Cols == 0 || overflowSize.Rows == 0 {
+		overflowSize = currentSize
+	}
 
 	var tabs []TabLayout
 	remaining := agents
 
 	for len(remaining) > 0 {
+		// First tab uses current pane size; overflow tabs use full window size.
+		screen := overflowSize
+		if len(tabs) == 0 {
+			screen = currentSize
+		}
+
+		maxCols := max(1, screen.Cols/cfg.MinPaneWidth)
+		maxRows := max(1, screen.Rows/cfg.MinPaneHeight)
+		maxPerTab := maxCols * maxRows
+
 		n := min(len(remaining), maxPerTab)
 		batch := remaining[:n]
 		remaining = remaining[n:]
@@ -104,7 +120,7 @@ func ComputeLayout(agents []string, screenCols, screenRows int, cfg LayoutConfig
 
 		// Compute pane dimensions. Last column/row absorbs remainder
 		// so the total adds up to the screen size exactly.
-		baseWidth := screenCols / max(1, cols)
+		baseWidth := screen.Cols / max(1, cols)
 
 		var panes []PaneAssignment
 		idx := 0
@@ -113,17 +129,17 @@ func ComputeLayout(agents []string, screenCols, screenRows int, cfg LayoutConfig
 			if leftover := len(batch) - idx; leftover < rows {
 				colRows = leftover
 			}
-			baseHeight := screenRows / max(1, colRows)
+			baseHeight := screen.Rows / max(1, colRows)
 
 			paneWidth := baseWidth
 			if c == cols-1 {
-				paneWidth = screenCols - baseWidth*(cols-1)
+				paneWidth = screen.Cols - baseWidth*(cols-1)
 			}
 
 			for r := 0; r < colRows; r++ {
 				paneHeight := baseHeight
 				if r == colRows-1 {
-					paneHeight = screenRows - baseHeight*(colRows-1)
+					paneHeight = screen.Rows - baseHeight*(colRows-1)
 				}
 				panes = append(panes, PaneAssignment{
 					AgentName: batch[idx],
@@ -140,13 +156,13 @@ func ComputeLayout(agents []string, screenCols, screenRows int, cfg LayoutConfig
 		tabs = append(tabs, TabLayout{
 			Cols:       cols,
 			Rows:       rows,
-			ScreenCols: screenCols,
-			ScreenRows: screenRows,
+			ScreenCols: screen.Cols,
+			ScreenRows: screen.Rows,
 			Panes:      panes,
 		})
 	}
 
-	return TileLayout{Tabs: tabs, ScreenCols: screenCols, ScreenRows: screenRows}
+	return TileLayout{Tabs: tabs}
 }
 
 // PrintDryRun writes a human-readable summary of the layout to w.
@@ -155,11 +171,15 @@ func PrintDryRun(layout TileLayout, w io.Writer) {
 	nTabs := len(layout.Tabs)
 
 	fmt.Fprintf(w, "Tile layout: %d panes across %d tab(s)\n", total, nTabs)
-	fmt.Fprintf(w, "Terminal size: %d cols x %d rows\n", layout.ScreenCols, layout.ScreenRows)
 
 	paneNum := 1
 	for tabIdx, tab := range layout.Tabs {
-		fmt.Fprintf(w, "\nTab %d (%d x %d grid, %d panes):\n", tabIdx+1, tab.Cols, tab.Rows, len(tab.Panes))
+		label := "current pane"
+		if tabIdx > 0 {
+			label = "new tab"
+		}
+		fmt.Fprintf(w, "\nTab %d — %s (%d cols x %d rows, %d x %d grid, %d panes):\n",
+			tabIdx+1, label, tab.ScreenCols, tab.ScreenRows, tab.Cols, tab.Rows, len(tab.Panes))
 		fmt.Fprintf(w, "  %-4s %-28s %5s %5s %7s %8s\n", "#", "Agent", "Col", "Row", "Width", "Height")
 		fmt.Fprintf(w, "  %-4s %-28s %5s %5s %7s %8s\n", "---", "---", "---", "---", "-----", "------")
 

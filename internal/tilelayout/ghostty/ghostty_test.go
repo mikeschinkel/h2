@@ -8,7 +8,7 @@ import (
 )
 
 func TestGenerateScript_TwoAgents(t *testing.T) {
-	layout := tilelayout.ComputeLayout([]string{"a1", "a2"}, 240, 60, tilelayout.DefaultConfig())
+	layout := tilelayout.ComputeLayout([]string{"a1", "a2"}, tilelayout.ScreenSize{Cols: 240, Rows: 60}, tilelayout.ScreenSize{}, tilelayout.DefaultConfig())
 	script := generateScript(layout)
 
 	// Should have 1 down split and no right splits.
@@ -30,7 +30,7 @@ func TestGenerateScript_TwoAgents(t *testing.T) {
 
 func TestGenerateScript_ThreeByThree(t *testing.T) {
 	agents := []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9"}
-	layout := tilelayout.ComputeLayout(agents, 240, 60, tilelayout.DefaultConfig())
+	layout := tilelayout.ComputeLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, tilelayout.ScreenSize{}, tilelayout.DefaultConfig())
 	script := generateScript(layout)
 
 	// Should have 2 right splits for 3 columns.
@@ -56,7 +56,7 @@ func TestGenerateScript_ThreeByThree(t *testing.T) {
 
 func TestGenerateScript_UnevenColumns(t *testing.T) {
 	agents := []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7"}
-	layout := tilelayout.ComputeLayout(agents, 240, 60, tilelayout.DefaultConfig())
+	layout := tilelayout.ComputeLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, tilelayout.ScreenSize{}, tilelayout.DefaultConfig())
 	script := generateScript(layout)
 
 	// 3 cols: 2 right splits. Rows: 2+2+0 down splits for col 0,1 (3 rows each),
@@ -74,7 +74,7 @@ func TestGenerateScript_MultiTab(t *testing.T) {
 	for i := range agents {
 		agents[i] = "a" + string(rune('A'+i))
 	}
-	layout := tilelayout.ComputeLayout(agents, 240, 60, tilelayout.DefaultConfig())
+	layout := tilelayout.ComputeLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, tilelayout.ScreenSize{}, tilelayout.DefaultConfig())
 	script := generateScript(layout)
 
 	// Should have new_tab for the second tab.
@@ -90,7 +90,7 @@ func TestGenerateScript_MultiTab(t *testing.T) {
 
 func TestGenerateScript_SinglePaneTab(t *testing.T) {
 	// Single agent layout: no splits in the generated script.
-	layout := tilelayout.ComputeLayout([]string{"solo"}, 240, 60, tilelayout.DefaultConfig())
+	layout := tilelayout.ComputeLayout([]string{"solo"}, tilelayout.ScreenSize{Cols: 240, Rows: 60}, tilelayout.ScreenSize{}, tilelayout.DefaultConfig())
 	script := generateScript(layout)
 
 	if strings.Contains(script, "new_split") {

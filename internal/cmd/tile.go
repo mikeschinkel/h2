@@ -35,7 +35,12 @@ func doTileAttach(name string, dryRun bool) error {
 		return fmt.Errorf("get terminal size: %w", err)
 	}
 
-	layout := tilelayout.ComputeLayout(agents, cols, rows, tilelayout.DefaultConfig())
+	currentSize := tilelayout.ScreenSize{Cols: cols, Rows: rows}
+	// Overflow tabs are full-window-sized. When we're in a split, we can't
+	// easily detect the full window size, so we pass zero and let
+	// ComputeLayout default overflowSize to currentSize. Users running
+	// from a non-split pane will get correct overflow sizing automatically.
+	layout := tilelayout.ComputeLayout(agents, currentSize, tilelayout.ScreenSize{}, tilelayout.DefaultConfig())
 	driver := ghostty.NewDriver()
 
 	if dryRun {
