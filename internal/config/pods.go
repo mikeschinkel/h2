@@ -76,8 +76,8 @@ type ExpandedAgent struct {
 // Count semantics:
 //   - count omitted (nil): produce 1 agent with Index=0, Count=0
 //   - count == 0: skip (produce 0 agents)
-//   - count == 1 with template expressions in name: render with Index=1, Count=1
-//   - count > 1: expand to N agents with Index=1..N, Count=N
+//   - count == 1 with template expressions in name: render with Index=0, Count=1
+//   - count > 1: expand to N agents with Index=0..N-1, Count=N
 //   - count < 0: treated as default (1 agent)
 func ExpandPodAgents(pt *PodTemplate) ([]ExpandedAgent, error) {
 	var agents []ExpandedAgent
@@ -110,7 +110,7 @@ func ExpandPodAgents(pt *PodTemplate) ([]ExpandedAgent, error) {
 		}
 
 		// count >= 1 with template, or count > 1: expand and render names.
-		for i := 1; i <= count; i++ {
+		for i := 0; i < count; i++ {
 			expandCtx := &tmpl.Context{Index: i, Count: count}
 
 			var name string
@@ -121,8 +121,8 @@ func ExpandPodAgents(pt *PodTemplate) ([]ExpandedAgent, error) {
 				}
 				name = rendered
 			} else {
-				// Auto-append index suffix.
-				name = fmt.Sprintf("%s-%d", a.Name, i)
+				// Auto-append 1-based index suffix for human-friendly names.
+				name = fmt.Sprintf("%s-%d", a.Name, i+1)
 			}
 
 			// Render role if it contains template expressions.

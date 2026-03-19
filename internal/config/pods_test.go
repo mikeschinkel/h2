@@ -108,8 +108,8 @@ func TestExpandPodAgents_CountGreaterThanOne(t *testing.T) {
 		if a.Name != expectedName {
 			t.Errorf("agent %d: name = %q, want %q", i, a.Name, expectedName)
 		}
-		if a.Index != i+1 {
-			t.Errorf("agent %d: Index = %d, want %d", i, a.Index, i+1)
+		if a.Index != i {
+			t.Errorf("agent %d: Index = %d, want %d", i, a.Index, i)
 		}
 		if a.Count != 3 {
 			t.Errorf("agent %d: Count = %d, want 3", i, a.Count)
@@ -134,7 +134,7 @@ func TestExpandPodAgents_CountWithIndexTemplate(t *testing.T) {
 		t.Fatalf("expected 3 agents, got %d", len(agents))
 	}
 	for i, a := range agents {
-		expected := []string{"coder-1", "coder-2", "coder-3"}[i]
+		expected := []string{"coder-0", "coder-1", "coder-2"}[i]
 		if a.Name != expected {
 			t.Errorf("agent %d: name = %q, want %q", i, a.Name, expected)
 		}
@@ -155,11 +155,11 @@ func TestExpandPodAgents_CountOneWithIndexTemplate(t *testing.T) {
 		t.Fatalf("expected 1 agent, got %d", len(agents))
 	}
 	a := agents[0]
-	if a.Name != "worker-1" {
-		t.Errorf("name = %q, want worker-1", a.Name)
+	if a.Name != "worker-0" {
+		t.Errorf("name = %q, want worker-0", a.Name)
 	}
-	if a.Index != 1 || a.Count != 1 {
-		t.Errorf("Index=%d Count=%d, want Index=1 Count=1", a.Index, a.Count)
+	if a.Index != 0 || a.Count != 1 {
+		t.Errorf("Index=%d Count=%d, want Index=0 Count=1", a.Index, a.Count)
 	}
 }
 
@@ -265,9 +265,9 @@ func TestExpandPodAgents_MixedAgents(t *testing.T) {
 		count int
 	}{
 		{"concierge", "concierge", 0, 0},
+		{"coder-0", "coding", 0, 3},
 		{"coder-1", "coding", 1, 3},
 		{"coder-2", "coding", 2, 3},
-		{"coder-3", "coding", 3, 3},
 		{"reviewer", "reviewer", 0, 0},
 	}
 	for i, e := range expected {
@@ -1145,9 +1145,9 @@ func TestE2E_PodWithCount(t *testing.T) {
 		count int
 	}{
 		{"concierge", 0, 0},
-		{"coder-1", 1, 3},
-		{"coder-2", 2, 3},
-		{"coder-3", 3, 3},
+		{"coder-1", 0, 3},
+		{"coder-2", 1, 3},
+		{"coder-3", 2, 3},
 		{"reviewer", 0, 0},
 	}
 	for i, e := range expected {
@@ -1229,7 +1229,7 @@ func TestExpandPodAgents_NoSpaceTemplateIndex(t *testing.T) {
 		t.Fatalf("expected 3 agents, got %d", len(agents))
 	}
 	for i, a := range agents {
-		expected := fmt.Sprintf("coder-%d", i+1)
+		expected := fmt.Sprintf("coder-%d", i)
 		if a.Name != expected {
 			t.Errorf("agent %d: name = %q, want %q", i, a.Name, expected)
 		}
@@ -1250,7 +1250,7 @@ func TestExpandPodAgents_TrimSpaceTemplateIndex(t *testing.T) {
 		t.Fatalf("expected 2 agents, got %d", len(agents))
 	}
 	for i, a := range agents {
-		expected := fmt.Sprintf("coder-%d", i+1)
+		expected := fmt.Sprintf("coder-%d", i)
 		if a.Name != expected {
 			t.Errorf("agent %d: name = %q, want %q", i, a.Name, expected)
 		}
