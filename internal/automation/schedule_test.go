@@ -15,6 +15,9 @@ func newTestScheduleEngine() (*ScheduleEngine, *mockEnqueuer) {
 }
 
 func TestScheduleEngine_FiresOnTime(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping sleep-based schedule test in short mode")
+	}
 	se, enq := newTestScheduleEngine()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -48,6 +51,9 @@ func TestScheduleEngine_FiresOnTime(t *testing.T) {
 }
 
 func TestScheduleEngine_RunIf_ConditionPass(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping sleep-based schedule test in short mode")
+	}
 	se, enq := newTestScheduleEngine()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -77,6 +83,9 @@ func TestScheduleEngine_RunIf_ConditionPass(t *testing.T) {
 }
 
 func TestScheduleEngine_RunIf_ConditionFail(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping sleep-based schedule test in short mode")
+	}
 	se, enq := newTestScheduleEngine()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -106,6 +115,9 @@ func TestScheduleEngine_RunIf_ConditionFail(t *testing.T) {
 }
 
 func TestScheduleEngine_StopWhen_ConditionFail(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping sleep-based schedule test in short mode")
+	}
 	se, enq := newTestScheduleEngine()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -135,6 +147,9 @@ func TestScheduleEngine_StopWhen_ConditionFail(t *testing.T) {
 }
 
 func TestScheduleEngine_StopWhen_ConditionPass(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping sleep-based schedule test in short mode")
+	}
 	se, enq := newTestScheduleEngine()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -168,6 +183,9 @@ func TestScheduleEngine_StopWhen_ConditionPass(t *testing.T) {
 }
 
 func TestScheduleEngine_RunOnceWhen_EventuallyFires(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping sleep-based schedule test in short mode")
+	}
 	se, enq := newTestScheduleEngine()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -218,6 +236,9 @@ func TestScheduleEngine_RunOnceWhen_EventuallyFires(t *testing.T) {
 }
 
 func TestScheduleEngine_RecurringRRule(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping sleep-based schedule test in short mode")
+	}
 	se, enq := newTestScheduleEngine()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -246,6 +267,9 @@ func TestScheduleEngine_RecurringRRule(t *testing.T) {
 }
 
 func TestScheduleEngine_FiniteRRule(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping sleep-based schedule test in short mode")
+	}
 	se, enq := newTestScheduleEngine()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -278,6 +302,9 @@ func TestScheduleEngine_FiniteRRule(t *testing.T) {
 }
 
 func TestScheduleEngine_Remove(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping sleep-based schedule test in short mode")
+	}
 	se, enq := newTestScheduleEngine()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -361,6 +388,9 @@ func TestScheduleEngine_InvalidRRule(t *testing.T) {
 }
 
 func TestScheduleEngine_EnvVarsSet(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping sleep-based schedule test in short mode")
+	}
 	se, enq := newTestScheduleEngine()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

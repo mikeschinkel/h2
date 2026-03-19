@@ -6,6 +6,7 @@ import (
 )
 
 func TestTriggerCmd_AddRequiresAction(t *testing.T) {
+	setupCmdTestH2Dir(t)
 	root := NewRootCmd()
 	root.SetArgs([]string{"trigger", "add", "test-agent", "--event", "state_change"})
 	err := root.Execute()
@@ -15,6 +16,7 @@ func TestTriggerCmd_AddRequiresAction(t *testing.T) {
 }
 
 func TestTriggerCmd_AddMutuallyExclusive(t *testing.T) {
+	setupCmdTestH2Dir(t)
 	root := NewRootCmd()
 	root.SetArgs([]string{"trigger", "add", "test-agent", "--event", "state_change",
 		"--exec", "echo hi", "--message", "hello"})
@@ -25,6 +27,7 @@ func TestTriggerCmd_AddMutuallyExclusive(t *testing.T) {
 }
 
 func TestTriggerCmd_AddRequiresEvent(t *testing.T) {
+	setupCmdTestH2Dir(t)
 	root := NewRootCmd()
 	root.SetArgs([]string{"trigger", "add", "test-agent", "--exec", "echo hi"})
 	err := root.Execute()

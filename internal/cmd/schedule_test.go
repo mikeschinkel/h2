@@ -3,9 +3,27 @@ package cmd
 import (
 	"strings"
 	"testing"
+
+	"h2/internal/config"
 )
 
+// setupCmdTestH2Dir creates a minimal h2 directory so PersistentPreRunE's
+// config.ResolveDir() succeeds. Must be called before tests that exercise
+// subcommand flag validation (which runs after PersistentPreRunE).
+func setupCmdTestH2Dir(t *testing.T) {
+	t.Helper()
+	config.ResetResolveCache()
+	t.Cleanup(config.ResetResolveCache)
+
+	dir := t.TempDir()
+	if err := config.WriteMarker(dir); err != nil {
+		t.Fatalf("WriteMarker: %v", err)
+	}
+	t.Setenv("H2_DIR", dir)
+}
+
 func TestScheduleCmd_AddRequiresAction(t *testing.T) {
+	setupCmdTestH2Dir(t)
 	root := NewRootCmd()
 	root.SetArgs([]string{"schedule", "add", "test-agent", "--rrule", "FREQ=SECONDLY;INTERVAL=30"})
 	err := root.Execute()
@@ -15,6 +33,7 @@ func TestScheduleCmd_AddRequiresAction(t *testing.T) {
 }
 
 func TestScheduleCmd_AddMutuallyExclusive(t *testing.T) {
+	setupCmdTestH2Dir(t)
 	root := NewRootCmd()
 	root.SetArgs([]string{"schedule", "add", "test-agent", "--rrule", "FREQ=SECONDLY;INTERVAL=30",
 		"--exec", "echo hi", "--message", "hello"})
@@ -25,6 +44,7 @@ func TestScheduleCmd_AddMutuallyExclusive(t *testing.T) {
 }
 
 func TestScheduleCmd_AddRequiresRRule(t *testing.T) {
+	setupCmdTestH2Dir(t)
 	root := NewRootCmd()
 	root.SetArgs([]string{"schedule", "add", "test-agent", "--exec", "echo hi"})
 	err := root.Execute()

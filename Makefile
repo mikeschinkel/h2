@@ -10,6 +10,9 @@ build-release:
 	$(MAKE) build RELEASE=true
 
 test:
+	go test -short $$(go list ./... | grep -v '^h2/e2etests$$')
+
+test-all:
 	go test $$(go list ./... | grep -v '^h2/e2etests$$')
 
 test-e2e:
