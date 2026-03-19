@@ -20,10 +20,10 @@ func TestGenerateScript_TwoAgents(t *testing.T) {
 	}
 
 	// Should type attach for a2 but not a1 (a1 gets exec'd).
-	if !strings.Contains(script, `keystroke "h2 attach a2"`) {
-		t.Error("missing keystroke for a2")
+	if !strings.Contains(script, `text:h2 attach a2\x0a`) {
+		t.Error("missing text action for a2")
 	}
-	if strings.Contains(script, `keystroke "h2 attach a1"`) {
+	if strings.Contains(script, `text:h2 attach a1\x0a`) {
 		t.Error("a1 should not be typed (it gets exec'd)")
 	}
 }
@@ -44,12 +44,12 @@ func TestGenerateScript_ThreeByThree(t *testing.T) {
 	}
 
 	// a1 should not be typed (gets exec'd), all others should.
-	if strings.Contains(script, `keystroke "h2 attach a1"`) {
+	if strings.Contains(script, `text:h2 attach a1\x0a`) {
 		t.Error("a1 should not be typed")
 	}
 	for _, name := range agents[1:] {
-		if !strings.Contains(script, `keystroke "h2 attach `+name+`"`) {
-			t.Errorf("missing keystroke for %s", name)
+		if !strings.Contains(script, `text:h2 attach `+name+`\x0a`) {
+			t.Errorf("missing text action for %s", name)
 		}
 	}
 }

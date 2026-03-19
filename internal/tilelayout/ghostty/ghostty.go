@@ -1,14 +1,15 @@
 // Package ghostty implements tiled pane layout for the Ghostty terminal.
 //
-// It uses the `ghostty +action` CLI for structural operations (splits,
-// navigation, tabs) and AppleScript keystroke simulation to type commands
-// into each pane.
+// It uses the `ghostty +action` CLI for all operations: splits, navigation,
+// tabs, and writing text to panes (via the text: action). No macOS
+// Accessibility permissions are required.
 //
 // Ghostty action names used (verify with `ghostty +list-actions`):
 //
 //	new_split:right, new_split:down
 //	goto_split:up, goto_split:down, goto_split:left, goto_split:right
 //	new_tab, previous_tab
+//	text:<string>  (writes to focused pane's PTY)
 package ghostty
 
 import (
@@ -237,14 +238,11 @@ func writeSleep(b *strings.Builder, ms int) {
 }
 
 func writeTypeAttach(b *strings.Builder, agentName string) {
-	// Escape agent name for AppleScript string literal.
+	// Use Ghostty's text: action to write directly to the focused pane's PTY.
+	// No macOS Accessibility permissions required (unlike osascript keystroke).
+	// \x0a is a newline (Enter) in Ghostty's text action escape syntax.
 	escaped := strings.ReplaceAll(agentName, `\`, `\\`)
 	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-	fmt.Fprintf(b, "osascript <<'KEYSTROKE'\n")
-	fmt.Fprintf(b, "tell application \"System Events\"\n")
-	fmt.Fprintf(b, "    keystroke \"h2 attach %s\"\n", escaped)
-	fmt.Fprintf(b, "    keystroke return\n")
-	fmt.Fprintf(b, "end tell\n")
-	fmt.Fprintf(b, "KEYSTROKE\n")
+	fmt.Fprintf(b, "ghostty +action \"text:h2 attach %s\\x0a\"\n", escaped)
 	writeSleep(b, 300)
 }
