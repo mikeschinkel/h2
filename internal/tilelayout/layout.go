@@ -18,8 +18,8 @@ type LayoutConfig struct {
 // standard 27" monitor at default scaling (~267 cols, ~73 rows full-screen).
 func DefaultConfig() LayoutConfig {
 	return LayoutConfig{
-		MinPaneWidth:  80,
-		MinPaneHeight: 20,
+		MinPaneWidth:  79,
+		MinPaneHeight: 19,
 	}
 }
 
