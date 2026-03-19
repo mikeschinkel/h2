@@ -16,8 +16,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"h2/internal/tilelayout"
 )
@@ -32,6 +34,68 @@ func NewDriver() *Driver { return &Driver{} }
 // without executing it. Used for dry-run output.
 func (d *Driver) Script(layout tilelayout.TileLayout) string {
 	return generateScript(layout)
+}
+
+// DetectFullWindowSize opens a temporary Ghostty tab, types a command
+// that writes the terminal size to a temp file, reads it back, then
+// closes the tab. This gives the full window size even when invoked
+// from within an existing split.
+func (d *Driver) DetectFullWindowSize() (tilelayout.ScreenSize, error) {
+	if _, err := exec.LookPath("ghostty"); err != nil {
+		return tilelayout.ScreenSize{}, fmt.Errorf("ghostty CLI not found")
+	}
+
+	// Create a temp file for the new tab's shell to write its size into.
+	tmpFile, err := os.CreateTemp("", "h2-winsize-*.txt")
+	if err != nil {
+		return tilelayout.ScreenSize{}, fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	// Open a temp tab.
+	if err := exec.Command("ghostty", "+action", "new_tab").Run(); err != nil {
+		return tilelayout.ScreenSize{}, fmt.Errorf("open temp tab: %w", err)
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	// Type a command into the new tab that writes cols/rows to the temp file,
+	// then immediately closes the tab via exit.
+	sizeCmd := fmt.Sprintf(`echo "$(tput cols) $(tput lines)" > %s; exit`, tmpPath)
+	escaped := strings.ReplaceAll(sizeCmd, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	action := fmt.Sprintf("text:%s\\x0a", escaped)
+	exec.Command("ghostty", "+action", action).Run()
+
+	// Wait for the command to execute and the tab to close.
+	var size tilelayout.ScreenSize
+	for i := 0; i < 20; i++ {
+		time.Sleep(200 * time.Millisecond)
+		data, err := os.ReadFile(tmpPath)
+		if err != nil || len(strings.TrimSpace(string(data))) == 0 {
+			continue
+		}
+		parts := strings.Fields(strings.TrimSpace(string(data)))
+		if len(parts) == 2 {
+			cols, errC := strconv.Atoi(parts[0])
+			rows, errR := strconv.Atoi(parts[1])
+			if errC == nil && errR == nil && cols > 0 && rows > 0 {
+				size = tilelayout.ScreenSize{Cols: cols, Rows: rows}
+				break
+			}
+		}
+	}
+
+	// Navigate back to the original tab (exit should have closed the temp tab,
+	// but previous_tab is a safe no-op if it already closed).
+	exec.Command("ghostty", "+action", "previous_tab").Run()
+	time.Sleep(100 * time.Millisecond)
+
+	if size.Cols == 0 {
+		return tilelayout.ScreenSize{}, fmt.Errorf("failed to read window size from temp tab")
+	}
+	return size, nil
 }
 
 // Tile creates Ghostty splits, types `h2 attach` in each pane, then
