@@ -33,16 +33,17 @@ func TestComputeLayout_SingleAgent(t *testing.T) {
 }
 
 func TestComputeLayout_TwoAgents(t *testing.T) {
-	layout := ComputeLayout([]string{"a1", "a2"}, 240, 60, DefaultConfig())
+	layout := ComputeLayout([]string{"a1", "a2"}, 240, 61, DefaultConfig())
 	tab := layout.Tabs[0]
 	if tab.Cols != 1 || tab.Rows != 2 {
 		t.Errorf("expected 1x2, got %dx%d", tab.Cols, tab.Rows)
 	}
-	// Single column, 2 rows: each pane 240 wide, 30 tall.
-	for _, p := range tab.Panes {
-		if p.Width != 240 || p.Height != 30 {
-			t.Errorf("pane %s: %dx%d, want 240x30", p.AgentName, p.Width, p.Height)
-		}
+	// Single column, 2 rows: 240 wide, 61 rows → 30 + 31.
+	if tab.Panes[0].Width != 240 || tab.Panes[0].Height != 30 {
+		t.Errorf("pane 0: %dx%d, want 240x30", tab.Panes[0].Width, tab.Panes[0].Height)
+	}
+	if tab.Panes[1].Width != 240 || tab.Panes[1].Height != 31 {
+		t.Errorf("pane 1: %dx%d, want 240x31", tab.Panes[1].Width, tab.Panes[1].Height)
 	}
 }
 
@@ -93,13 +94,13 @@ func TestComputeLayout_UnevenLastColumn(t *testing.T) {
 		t.Errorf("col 1: expected 2 rows, got %d", tab.RowsInCol(1))
 	}
 
-	// Col 0 panes: 120 wide, 20 tall (60/3).
+	// Col 0 panes: 120 wide, heights 20+20+20 (60/3, last row absorbs remainder=0).
 	for i, p := range tab.Panes[:3] {
 		if p.Width != 120 || p.Height != 20 {
 			t.Errorf("col0 pane %d: %dx%d, want 120x20", i, p.Width, p.Height)
 		}
 	}
-	// Col 1 panes: 120 wide, 30 tall (60/2).
+	// Col 1 (last col): 120 wide, heights 30+30 (60/2).
 	for i, p := range tab.Panes[3:] {
 		if p.Width != 120 || p.Height != 30 {
 			t.Errorf("col1 pane %d: %dx%d, want 120x30", i, p.Width, p.Height)
@@ -191,6 +192,34 @@ func TestRowsInCol(t *testing.T) {
 	}
 	if got := tab.RowsInCol(3); got != 0 {
 		t.Errorf("col 3 (out of range): got %d, want 0", got)
+	}
+}
+
+func TestComputeLayout_RemainderAbsorbed(t *testing.T) {
+	// 239 cols / 2 cols = 119 base, last col gets 120.
+	// 59 rows / 2 rows = 29 base, last row gets 30.
+	agents := []string{"a1", "a2", "a3", "a4"}
+	layout := ComputeLayout(agents, 239, 59, LayoutConfig{MinPaneWidth: 80, MinPaneHeight: 20})
+	tab := layout.Tabs[0]
+	if tab.Cols != 2 || tab.Rows != 2 {
+		t.Fatalf("expected 2x2, got %dx%d", tab.Cols, tab.Rows)
+	}
+
+	// (0,0): base width, base height.
+	if tab.Panes[0].Width != 119 || tab.Panes[0].Height != 29 {
+		t.Errorf("pane (0,0): %dx%d, want 119x29", tab.Panes[0].Width, tab.Panes[0].Height)
+	}
+	// (1,0): base width, last row height.
+	if tab.Panes[1].Width != 119 || tab.Panes[1].Height != 30 {
+		t.Errorf("pane (1,0): %dx%d, want 119x30", tab.Panes[1].Width, tab.Panes[1].Height)
+	}
+	// (0,1): last col width, base height.
+	if tab.Panes[2].Width != 120 || tab.Panes[2].Height != 29 {
+		t.Errorf("pane (0,1): %dx%d, want 120x29", tab.Panes[2].Width, tab.Panes[2].Height)
+	}
+	// (1,1): last col width, last row height.
+	if tab.Panes[3].Width != 120 || tab.Panes[3].Height != 30 {
+		t.Errorf("pane (1,1): %dx%d, want 120x30", tab.Panes[3].Width, tab.Panes[3].Height)
 	}
 }
 

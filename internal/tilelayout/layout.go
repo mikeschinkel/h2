@@ -102,8 +102,9 @@ func ComputeLayout(agents []string, screenCols, screenRows int, cfg LayoutConfig
 		rows := min(len(batch), maxRows)
 		cols := (len(batch) + rows - 1) / rows
 
-		// Compute pane dimensions.
-		paneWidth := screenCols / max(1, cols)
+		// Compute pane dimensions. Last column/row absorbs remainder
+		// so the total adds up to the screen size exactly.
+		baseWidth := screenCols / max(1, cols)
 
 		var panes []PaneAssignment
 		idx := 0
@@ -112,9 +113,18 @@ func ComputeLayout(agents []string, screenCols, screenRows int, cfg LayoutConfig
 			if leftover := len(batch) - idx; leftover < rows {
 				colRows = leftover
 			}
-			paneHeight := screenRows / max(1, colRows)
+			baseHeight := screenRows / max(1, colRows)
+
+			paneWidth := baseWidth
+			if c == cols-1 {
+				paneWidth = screenCols - baseWidth*(cols-1)
+			}
 
 			for r := 0; r < colRows; r++ {
+				paneHeight := baseHeight
+				if r == colRows-1 {
+					paneHeight = screenRows - baseHeight*(colRows-1)
+				}
 				panes = append(panes, PaneAssignment{
 					AgentName: batch[idx],
 					Tab:       len(tabs),
