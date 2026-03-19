@@ -709,9 +709,12 @@ func TestListPodTemplates_IncludesYAMLTmpl(t *testing.T) {
 	os.WriteFile(filepath.Join(podDir, "plain.yaml"), []byte("pod_name: plain\nagents: []\n"), 0o644)
 	os.WriteFile(filepath.Join(podDir, "tmpl.yaml.tmpl"), []byte("pod_name: tmpl\nagents: []\n"), 0o644)
 
-	templates, err := ListPodTemplates()
+	templates, parseErrs, err := ListPodTemplates()
 	if err != nil {
 		t.Fatalf("ListPodTemplates failed: %v", err)
+	}
+	if len(parseErrs) != 0 {
+		t.Errorf("unexpected parse errors: %v", parseErrs)
 	}
 	names := make(map[string]bool)
 	for _, pt := range templates {
@@ -733,12 +736,38 @@ func TestListPodTemplates_DeduplicatesYAMLAndTmpl(t *testing.T) {
 	os.WriteFile(filepath.Join(podDir, "dup.yaml.tmpl"), []byte("pod_name: dup-tmpl\nagents: []\n"), 0o644)
 	os.WriteFile(filepath.Join(podDir, "dup.yaml"), []byte("pod_name: dup-yaml\nagents: []\n"), 0o644)
 
-	templates, err := ListPodTemplates()
+	templates, _, err := ListPodTemplates()
 	if err != nil {
 		t.Fatalf("ListPodTemplates failed: %v", err)
 	}
 	if len(templates) != 1 {
 		t.Fatalf("expected 1 template (deduplicated), got %d", len(templates))
+	}
+}
+
+func TestListPodTemplates_ReportsParseErrors(t *testing.T) {
+	h2Dir := setupTestH2Dir(t)
+	podDir := filepath.Join(h2Dir, "pods")
+	os.MkdirAll(podDir, 0o755)
+
+	os.WriteFile(filepath.Join(podDir, "good.yaml"), []byte("pod_name: good\nagents: []\n"), 0o644)
+	os.WriteFile(filepath.Join(podDir, "bad.yaml"), []byte("pod_name:\n  broken: [invalid\n"), 0o644)
+
+	templates, parseErrs, err := ListPodTemplates()
+	if err != nil {
+		t.Fatalf("ListPodTemplates failed: %v", err)
+	}
+	if len(templates) != 1 {
+		t.Fatalf("expected 1 valid template, got %d", len(templates))
+	}
+	if templates[0].PodName != "good" {
+		t.Errorf("expected good template, got %q", templates[0].PodName)
+	}
+	if len(parseErrs) != 1 {
+		t.Fatalf("expected 1 parse error, got %d", len(parseErrs))
+	}
+	if !strings.Contains(parseErrs[0].Error(), "bad.yaml") {
+		t.Errorf("parse error should mention filename, got: %v", parseErrs[0])
 	}
 }
 

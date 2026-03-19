@@ -421,23 +421,42 @@ func newPodListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List available pod templates",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			templates, err := config.ListPodTemplates()
+			templates, parseErrs, err := config.ListPodTemplates()
 			if err != nil {
 				return err
 			}
 
-			if len(templates) == 0 {
+			w := cmd.OutOrStdout()
+
+			for _, pe := range parseErrs {
+				fmt.Fprintf(w, "warning: %v\n", pe)
+			}
+
+			if len(templates) == 0 && len(parseErrs) == 0 {
 				fmt.Printf("No pod templates found in %s\n", config.PodDir())
 				return nil
 			}
 
-			w := cmd.OutOrStdout()
 			for _, t := range templates {
 				name := t.PodName
 				if name == "" {
 					name = "(unnamed)"
 				}
-				fmt.Fprintf(w, "%-20s %d agents\n", name, len(t.Agents))
+				varInfo := ""
+				if nVars := len(t.Variables); nVars > 0 {
+					nRequired := 0
+					for _, v := range t.Variables {
+						if v.Required() {
+							nRequired++
+						}
+					}
+					if nRequired > 0 {
+						varInfo = fmt.Sprintf(" (%d variables, %d required)", nVars, nRequired)
+					} else {
+						varInfo = fmt.Sprintf(" (%d variables)", nVars)
+					}
+				}
+				fmt.Fprintf(w, "%-20s %d agents%s\n", name, len(t.Agents), varInfo)
 				for _, a := range t.Agents {
 					role := a.Role
 					if role == "" {

@@ -265,19 +265,61 @@ func ParsePodTemplateRendered(yamlText string, name string, ctx *tmpl.Context) (
 	return &pt, nil
 }
 
+// loadPodTemplateForDisplay loads a pod template with rendering using only
+// default variable values. Unlike LoadPodTemplateRendered, it skips
+// required-var validation so templates can be listed without providing all vars.
+func loadPodTemplateForDisplay(name string) (*PodTemplate, error) {
+	path := resolvePodPath(PodDir(), name)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read pod template: %w", err)
+	}
+
+	// Extract variables and apply defaults only.
+	varDefs, remaining, err := tmpl.ParseVarDefs(string(data))
+	if err != nil {
+		return nil, fmt.Errorf("pod template %q: %w", name, err)
+	}
+
+	vars := make(map[string]string)
+	for k, def := range varDefs {
+		if def.Default != nil {
+			vars[k] = *def.Default
+		}
+	}
+
+	// Render with defaults only (no required-var validation).
+	ctx := &tmpl.Context{Var: vars}
+	rendered, err := tmpl.Render(remaining, ctx)
+	if err != nil {
+		return nil, fmt.Errorf("pod template %q: %w", name, err)
+	}
+
+	var pt PodTemplate
+	if err := yaml.Unmarshal([]byte(rendered), &pt); err != nil {
+		return nil, fmt.Errorf("pod template %q produced invalid YAML after rendering: %w", name, err)
+	}
+	pt.Variables = varDefs
+
+	return &pt, nil
+}
+
 // ListPodTemplates returns available pod templates.
-func ListPodTemplates() ([]*PodTemplate, error) {
+// Parse errors are collected and returned alongside successfully loaded templates,
+// so callers can display both the working templates and any broken ones.
+func ListPodTemplates() ([]*PodTemplate, []error, error) {
 	dir := PodDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, fmt.Errorf("read pods dir: %w", err)
+		return nil, nil, fmt.Errorf("read pods dir: %w", err)
 	}
 
 	seen := make(map[string]bool) // deduplicate foo.yaml vs foo.yaml.tmpl
 	var templates []*PodTemplate
+	var parseErrs []error
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -295,11 +337,12 @@ func ListPodTemplates() ([]*PodTemplate, error) {
 			continue
 		}
 		seen[name] = true
-		tmpl, err := LoadPodTemplate(name)
+		tmpl, err := loadPodTemplateForDisplay(name)
 		if err != nil {
+			parseErrs = append(parseErrs, fmt.Errorf("%s: %w", entry.Name(), err))
 			continue
 		}
 		templates = append(templates, tmpl)
 	}
-	return templates, nil
+	return templates, parseErrs, nil
 }
