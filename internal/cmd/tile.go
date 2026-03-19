@@ -42,6 +42,7 @@ func doTileAttach(name string, dryRun bool) error {
 	// to probe the terminal. Falls back to current size on error.
 	overflowSize, err := driver.DetectFullWindowSize()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not detect full window size (%v), using current pane size\n", err)
 		overflowSize = currentSize
 	}
 
