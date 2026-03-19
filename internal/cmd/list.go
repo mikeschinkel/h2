@@ -81,6 +81,11 @@ func newLsCmd() *cobra.Command {
 				fmt.Printf("  %s %s %s\n", s.GreenDot(), e.Name, s.Dim("(bridge, not responding)"))
 			}
 
+			// When filtering by pod, show a summary of what's outside the filter.
+			if podFilter != "" && podFilter != "*" {
+				printOutsidePodSummary(agentInfos, bridgeInfos, podFilter)
+			}
+
 			return nil
 		},
 	}
@@ -218,6 +223,41 @@ func printPodGroups(groups []podGroup, unresponsive []string) {
 	for _, name := range unresponsive {
 		fmt.Printf("  %s %s %s\n", s.RedX(), name, s.Dim("(not responding)"))
 	}
+}
+
+// printOutsidePodSummary shows a count of agents and bridges not in the filtered pod.
+func printOutsidePodSummary(agents []*message.AgentInfo, bridges []*message.BridgeInfo, podFilter string) {
+	otherAgents := 0
+	for _, a := range agents {
+		if a.Pod != podFilter {
+			otherAgents++
+		}
+	}
+	otherBridges := 0
+	for _, b := range bridges {
+		if b.Pod != podFilter {
+			otherBridges++
+		}
+	}
+	if otherAgents == 0 && otherBridges == 0 {
+		return
+	}
+	var parts []string
+	if otherAgents > 0 {
+		label := "agent"
+		if otherAgents != 1 {
+			label = "agents"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", otherAgents, label))
+	}
+	if otherBridges > 0 {
+		label := "bridge"
+		if otherBridges != 1 {
+			label = "bridges"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", otherBridges, label))
+	}
+	fmt.Printf("\n%s\n", s.Dim(fmt.Sprintf("(%s running outside this pod)", strings.Join(parts, " and "))))
 }
 
 func printAgentLine(info *message.AgentInfo) {
