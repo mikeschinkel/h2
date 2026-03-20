@@ -1,4 +1,4 @@
-package e2etests
+package external
 
 import (
 	"os"

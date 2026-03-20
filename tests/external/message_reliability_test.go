@@ -1,6 +1,6 @@
 //go:build reliability
 
-package e2etests
+package external
 
 import (
 	"encoding/json"

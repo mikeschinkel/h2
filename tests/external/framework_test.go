@@ -1,4 +1,4 @@
-package e2etests
+package external
 
 import (
 	"fmt"
@@ -24,7 +24,7 @@ func TestMain(m *testing.M) {
 
 	h2Binary = filepath.Join(tmp, "h2")
 	cmd := exec.Command("go", "build", "-o", h2Binary, "./cmd/h2")
-	cmd.Dir = filepath.Join(mustGetwd(), "..")
+	cmd.Dir = filepath.Join(mustGetwd(), "..", "..")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
