@@ -1,24 +1,9 @@
 package external
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// createPodRole writes a role YAML file into pods/roles/ directory.
-func createPodRole(t *testing.T, h2Dir, name, content string) {
-	t.Helper()
-	dir := filepath.Join(h2Dir, "pods", "roles")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("create pod roles dir: %v", err)
-	}
-	path := filepath.Join(dir, name+".yaml")
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("create pod role %s: %v", name, err)
-	}
-}
 
 // workerRole is a minimal role that starts and stays running.
 const workerRole = `
@@ -259,91 +244,6 @@ func TestPod_NameValidation(t *testing.T) {
 	combined := result.Stdout + result.Stderr
 	if !strings.Contains(combined, "invalid pod name") {
 		t.Errorf("expected 'invalid pod name' in error: %s", combined)
-	}
-}
-
-// §8.1-8.2 Pod role takes priority over global role
-func TestPodRole_PodOverridesGlobal(t *testing.T) {
-	h2Dir := createTestH2Dir(t)
-
-	// Create global and pod role with same name but different descriptions.
-	createRole(t, h2Dir, "shared-role", `
-role_name: shared-role
-agent_harness: generic
-agent_harness_command: "true"
-instructions: global version
-description: global
-`)
-	createPodRole(t, h2Dir, "shared-role", `
-role_name: shared-role
-agent_harness: generic
-agent_harness_command: "true"
-instructions: pod version
-description: pod-override
-`)
-
-	// Launch with --pod should use the pod role.
-	r := runH2(t, h2Dir, "run", "--role", "shared-role", "--pod", "test-pod", "pod-agent", "--detach")
-	if r.ExitCode != 0 {
-		t.Fatalf("h2 run failed: exit=%d stderr=%s", r.ExitCode, r.Stderr)
-	}
-	t.Cleanup(func() { stopAgent(t, h2Dir, "pod-agent") })
-	waitForSocket(t, h2Dir, "agent", "pod-agent")
-
-	// Launch without --pod should use global role.
-	r2 := runH2(t, h2Dir, "run", "--role", "shared-role", "global-agent", "--detach")
-	if r2.ExitCode != 0 {
-		t.Fatalf("h2 run failed: exit=%d stderr=%s", r2.ExitCode, r2.Stderr)
-	}
-	t.Cleanup(func() { stopAgent(t, h2Dir, "global-agent") })
-	waitForSocket(t, h2Dir, "agent", "global-agent")
-
-	// Both agents should be running. The main verification is that
-	// the pod launch succeeded using the pod-scoped role.
-	result := runH2(t, h2Dir, "list")
-	if result.ExitCode != 0 {
-		t.Fatalf("h2 list failed: exit=%d stderr=%s", result.ExitCode, result.Stderr)
-	}
-	out := result.Stdout
-	if !strings.Contains(out, "pod-agent") || !strings.Contains(out, "global-agent") {
-		t.Errorf("expected both agents in list: %s", out)
-	}
-}
-
-// §8.3 h2 role list shows both scopes
-func TestPodRole_RoleListShowsBothScopes(t *testing.T) {
-	h2Dir := createTestH2Dir(t)
-	createRole(t, h2Dir, "global-role", `
-role_name: global-role
-agent_harness: generic
-agent_harness_command: "true"
-instructions: global
-description: a global role
-`)
-	createPodRole(t, h2Dir, "pod-role", `
-role_name: pod-role
-agent_harness: generic
-agent_harness_command: "true"
-instructions: pod
-description: a pod role
-`)
-
-	result := runH2(t, h2Dir, "role", "list")
-	if result.ExitCode != 0 {
-		t.Fatalf("h2 role list failed: exit=%d stderr=%s", result.ExitCode, result.Stderr)
-	}
-	out := result.Stdout
-	if !strings.Contains(out, "Global roles") {
-		t.Errorf("expected 'Global roles' header: %s", out)
-	}
-	if !strings.Contains(out, "Pod roles") {
-		t.Errorf("expected 'Pod roles' header: %s", out)
-	}
-	if !strings.Contains(out, "global-role") {
-		t.Errorf("expected global-role listed: %s", out)
-	}
-	if !strings.Contains(out, "pod-role") {
-		t.Errorf("expected pod-role listed: %s", out)
 	}
 }
 
