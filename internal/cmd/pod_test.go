@@ -498,3 +498,178 @@ func TestPodLaunchBridges_SkipsBridgeAlreadyRunningForSamePod(t *testing.T) {
 		t.Fatalf("expected no bridge stop request, got %d", stopRequests)
 	}
 }
+
+func TestPodLaunchBridges_FailsWhenBridgeAlreadyRunningStandalone(t *testing.T) {
+	h2Root := setupPodTestEnv(t)
+	sockDir := filepath.Join(h2Root, "sockets")
+
+	configYAML := `bridges:
+  personal:
+    macos_notify:
+      enabled: true
+`
+	if err := os.WriteFile(filepath.Join(h2Root, "config.yaml"), []byte(configYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	agentSock := filepath.Join(sockDir, socketdir.Format(socketdir.TypeAgent, "sage"))
+	agentListener, err := net.Listen("unix", agentSock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { agentListener.Close() })
+	go func() {
+		for {
+			conn, err := agentListener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				req, err := message.ReadRequest(conn)
+				if err != nil {
+					return
+				}
+				if req.Type == "status" {
+					_ = message.SendResponse(conn, &message.Response{
+						OK: true,
+						Agent: &message.AgentInfo{
+							Name: "sage",
+							Pod:  "dev-pod",
+						},
+					})
+				}
+			}()
+		}
+	}()
+
+	bridgeSock := filepath.Join(sockDir, socketdir.Format(socketdir.TypeBridge, "personal"))
+	bridgeListener, err := net.Listen("unix", bridgeSock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { bridgeListener.Close() })
+	go func() {
+		for {
+			conn, err := bridgeListener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				req, err := message.ReadRequest(conn)
+				if err != nil {
+					return
+				}
+				if req.Type == "status" {
+					_ = message.SendResponse(conn, &message.Response{
+						OK: true,
+						Bridge: &message.BridgeInfo{
+							Name: "personal",
+							Pod:  "",
+						},
+					})
+				}
+			}()
+		}
+	}()
+
+	err = podLaunchBridges([]config.PodBridge{{Bridge: "personal", Concierge: "sage"}}, "dev-pod")
+	if err == nil {
+		t.Fatal("expected error for standalone bridge already running")
+	}
+	if !strings.Contains(err.Error(), `bridge "personal" is already running`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPodLaunchCmd_AttachesInSupportedTerminal(t *testing.T) {
+	h2Root := setupPodTestEnv(t)
+
+	tmplContent := `pod_name: dev-pod
+agents:
+  - name: worker
+    role: default
+`
+	if err := os.WriteFile(filepath.Join(h2Root, "pods", "devpod.yaml"), []byte(tmplContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	roleContent := "role_name: default\ninstructions: |\n  test\n"
+	if err := os.WriteFile(filepath.Join(h2Root, "roles", "default.yaml"), []byte(roleContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origFork := forkDaemonFunc
+	forkDaemonFunc = func(sessionDir string, hints session.TerminalHints, resume bool) error { return nil }
+	t.Cleanup(func() { forkDaemonFunc = origFork })
+
+	origIsTerminal := stdinIsTerminalFunc
+	stdinIsTerminalFunc = func(fd int) bool { return true }
+	t.Cleanup(func() { stdinIsTerminalFunc = origIsTerminal })
+
+	t.Setenv("TERM_PROGRAM", "ghostty")
+
+	origTileAttach := tileAttachFunc
+	attached := ""
+	tileAttachFunc = func(name string, dryRun bool) error {
+		attached = name
+		if dryRun {
+			t.Fatal("unexpected dry-run tile attach")
+		}
+		return nil
+	}
+	t.Cleanup(func() { tileAttachFunc = origTileAttach })
+
+	cmd := newPodLaunchCmd()
+	cmd.SetArgs([]string{"devpod"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if attached != "dev-pod" {
+		t.Fatalf("expected tile attach for pod dev-pod, got %q", attached)
+	}
+}
+
+func TestPodLaunchCmd_AutoDetachesWithoutPTY(t *testing.T) {
+	h2Root := setupPodTestEnv(t)
+
+	tmplContent := `pod_name: dev-pod
+agents:
+  - name: worker
+    role: default
+`
+	if err := os.WriteFile(filepath.Join(h2Root, "pods", "devpod.yaml"), []byte(tmplContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	roleContent := "role_name: default\ninstructions: |\n  test\n"
+	if err := os.WriteFile(filepath.Join(h2Root, "roles", "default.yaml"), []byte(roleContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origFork := forkDaemonFunc
+	forkDaemonFunc = func(sessionDir string, hints session.TerminalHints, resume bool) error { return nil }
+	t.Cleanup(func() { forkDaemonFunc = origFork })
+
+	origIsTerminal := stdinIsTerminalFunc
+	stdinIsTerminalFunc = func(fd int) bool { return false }
+	t.Cleanup(func() { stdinIsTerminalFunc = origIsTerminal })
+
+	origTileAttach := tileAttachFunc
+	called := false
+	tileAttachFunc = func(name string, dryRun bool) error {
+		called = true
+		return nil
+	}
+	t.Cleanup(func() { tileAttachFunc = origTileAttach })
+
+	cmd := newPodLaunchCmd()
+	cmd.SetArgs([]string{"devpod"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if called {
+		t.Fatal("expected auto-detached pod launch to skip tile attach")
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"h2/internal/bridgeservice"
 	"h2/internal/config"
@@ -16,6 +17,8 @@ import (
 	"h2/internal/socketdir"
 	"h2/internal/tmpl"
 )
+
+var stdinIsTerminalFunc = func(fd int) bool { return term.IsTerminal(fd) }
 
 func newPodCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -34,6 +37,7 @@ func newPodCmd() *cobra.Command {
 
 func newPodLaunchCmd() *cobra.Command {
 	var podName string
+	var detach bool
 	var dryRun bool
 	var varFlags []string
 
@@ -42,6 +46,10 @@ func newPodLaunchCmd() *cobra.Command {
 		Short: "Launch a pod from a template",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !dryRun && !detach && !stdinIsTerminalFunc(int(os.Stdin.Fd())) {
+				detach = true
+			}
+
 			templateName := args[0]
 
 			// Parse --var flags.
@@ -170,11 +178,24 @@ func newPodLaunchCmd() *cobra.Command {
 				}
 			}
 
-			return nil
+			if detach {
+				fmt.Fprintf(os.Stderr, "Pod %q launched (detached). Use 'h2 attach %s --tile' from Ghostty to connect.\n", pod, pod)
+				return nil
+			}
+
+			if !terminalSupportsTileAttach() {
+				fmt.Fprintf(os.Stderr, "Pod %q launched. Auto-attach is currently supported only in Ghostty; leaving agents running in the background.\n", pod)
+				return nil
+			}
+
+			fmt.Fprintf(os.Stderr, "Pod %q launched. Attaching...\n", pod)
+			return tileAttachFunc(pod, false)
+
 		},
 	}
 
 	cmd.Flags().StringVar(&podName, "pod", "", "Override pod name (default: template's pod_name or template name)")
+	cmd.Flags().BoolVar(&detach, "detach", false, "Don't auto-attach after launching")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show resolved pod config without launching")
 	cmd.Flags().StringArrayVar(&varFlags, "var", nil, "Set template variable (key=value, repeatable)")
 
@@ -217,9 +238,6 @@ func podLaunchBridges(bridges []config.PodBridge, pod string) error {
 			if err := message.SendRequest(conn, &message.Request{Type: "status"}); err == nil {
 				if resp, err := message.ReadResponse(conn); err == nil && resp.OK && resp.Bridge != nil {
 					conn.Close()
-					if resp.Bridge.Pod != "" && resp.Bridge.Pod != pod {
-						return fmt.Errorf("bridge %q is already owned by pod %q; stop it first or remove from this pod", pb.Bridge, resp.Bridge.Pod)
-					}
 					if resp.Bridge.Pod == pod {
 						fmt.Fprintf(os.Stderr, "  bridge %s already running", pb.Bridge)
 						if pb.Concierge != "" {
@@ -229,11 +247,10 @@ func podLaunchBridges(bridges []config.PodBridge, pod string) error {
 						bridgesSkipped = append(bridgesSkipped, pb.Bridge)
 						continue
 					}
-					// Standalone bridge — stop and wait for socket cleanup before re-launch
-					// so the pod can claim ownership.
-					if _, err := stopExistingBridgeIfRunning(pb.Bridge); err != nil {
-						return fmt.Errorf("stop bridge %q before relaunch: %w", pb.Bridge, err)
+					if resp.Bridge.Pod != "" {
+						return fmt.Errorf("bridge %q is already owned by pod %q; stop it first or remove from this pod", pb.Bridge, resp.Bridge.Pod)
 					}
+					return fmt.Errorf("bridge %q is already running; stop it before launching pod %q", pb.Bridge, pod)
 				} else {
 					conn.Close()
 				}

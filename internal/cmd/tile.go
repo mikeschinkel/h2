@@ -13,6 +13,14 @@ import (
 	"h2/internal/tilelayout/ghostty"
 )
 
+var tileAttachFunc = doTileAttach
+
+func terminalSupportsTileAttach() bool {
+	termProgram := strings.ToLower(os.Getenv("TERM_PROGRAM"))
+	termName := strings.ToLower(os.Getenv("TERM"))
+	return termProgram == "ghostty" || strings.Contains(termName, "ghostty")
+}
+
 // doTileAttach resolves agents from name, computes a tiled layout, and
 // opens Ghostty splits with h2 attach in each pane.
 func doTileAttach(name string, dryRun bool) error {
