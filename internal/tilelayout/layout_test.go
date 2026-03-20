@@ -292,7 +292,7 @@ func TestPrintDryRun(t *testing.T) {
 	layout := ComputeLayout(agents, ScreenSize{240, 60}, ScreenSize{}, DefaultConfig())
 
 	var buf bytes.Buffer
-	PrintDryRun(layout, &buf)
+	PrintDryRun(layout, nil, &buf)
 	out := buf.String()
 
 	if !strings.Contains(out, "5 panes across 1 tab") {
@@ -304,8 +304,28 @@ func TestPrintDryRun(t *testing.T) {
 	if !strings.Contains(out, "agent-a") || !strings.Contains(out, "agent-e") {
 		t.Errorf("missing agent names in:\n%s", out)
 	}
-	// Should show Width and Height columns.
 	if !strings.Contains(out, "Width") || !strings.Contains(out, "Height") {
 		t.Errorf("missing dimension headers in:\n%s", out)
+	}
+}
+
+func TestPrintDryRun_WithOverflow(t *testing.T) {
+	tab0, overflow := ComputeTabLayout(
+		[]string{"a1", "a2", "a3", "a4", "a5"},
+		ScreenSize{80, 20}, 0, DefaultConfig())
+	layout := TileLayout{Tabs: []TabLayout{tab0}}
+
+	var buf bytes.Buffer
+	PrintDryRun(layout, overflow, &buf)
+	out := buf.String()
+
+	if !strings.Contains(out, "Overflow") {
+		t.Errorf("missing overflow section in:\n%s", out)
+	}
+	// All overflow agents should be listed.
+	for _, name := range overflow {
+		if !strings.Contains(out, name) {
+			t.Errorf("missing overflow agent %s in:\n%s", name, out)
+		}
 	}
 }

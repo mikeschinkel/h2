@@ -36,22 +36,17 @@ func doTileAttach(name string, dryRun bool) error {
 	}
 
 	currentSize := tilelayout.ScreenSize{Cols: cols, Rows: rows}
-	driver := ghostty.NewDriver()
+	cfg := tilelayout.DefaultConfig()
 
-	// Auto-detect full window size for overflow tabs by asking the driver
-	// to probe the terminal. Falls back to current size on error.
-	overflowSize, err := driver.DetectFullWindowSize()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not detect full window size (%v), using current pane size\n", err)
-		overflowSize = currentSize
-	}
-
-	layout := tilelayout.ComputeLayout(agents, currentSize, overflowSize, tilelayout.DefaultConfig())
+	// Compute only the first tab with the current pane size.
+	tab0, overflow := tilelayout.ComputeTabLayout(agents, currentSize, 0, cfg)
+	layout := tilelayout.TileLayout{Tabs: []tilelayout.TabLayout{tab0}}
 
 	if dryRun {
-		tilelayout.PrintDryRun(layout, os.Stdout)
-		fmt.Println("\nScript that would run:")
-		fmt.Println(driver.Script(layout))
+		tilelayout.PrintDryRun(layout, overflow, os.Stdout)
+		driver := ghostty.NewDriver()
+		fmt.Println("\nScript for tab 1:")
+		fmt.Println(driver.ScriptForTab(tab0, true))
 		return nil
 	}
 
@@ -60,7 +55,8 @@ func doTileAttach(name string, dryRun bool) error {
 		return fmt.Errorf("resolve h2 binary path: %w", err)
 	}
 
-	return driver.Tile(layout, h2Binary)
+	driver := ghostty.NewDriver()
+	return driver.TileIterative(tab0, overflow, cfg, h2Binary)
 }
 
 // resolveTileAgents interprets name as:

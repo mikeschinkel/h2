@@ -4,15 +4,6 @@
 // operations: splits, navigation, tabs, and writing text to panes.
 // No macOS Accessibility permissions are required — this uses
 // `tell application "Ghostty"`, not `tell application "System Events"`.
-//
-// Ghostty AppleScript operations used:
-//
-//	new tab in front window
-//	split <term> direction right/down
-//	input text "<string>" to <term>
-//	perform action "<action>" on <term>
-//	close tab (selected tab of front window)
-//	focused terminal of selected tab of front window
 package ghostty
 
 import (
@@ -33,45 +24,106 @@ type Driver struct{}
 // NewDriver creates a Ghostty tiling driver.
 func NewDriver() *Driver { return &Driver{} }
 
-// Script returns the bash script that would create the tiled layout
-// without executing it. Used for dry-run output.
-func (d *Driver) Script(layout tilelayout.TileLayout) string {
-	return generateScript(layout)
+// ScriptForTab returns the bash script for a single tab's setup.
+func (d *Driver) ScriptForTab(tab tilelayout.TabLayout, isFirstTab bool) string {
+	return generateTabScript(tab, isFirstTab)
 }
 
-// DetectFullWindowSize opens a temporary Ghostty tab, types a command
-// that writes the terminal size to a temp file, reads it back, then
-// closes the tab. This gives the full window size even when invoked
-// from within an existing split.
-func (d *Driver) DetectFullWindowSize() (tilelayout.ScreenSize, error) {
-	// Create a temp file for the new tab's shell to write its size into.
-	tmpFile, err := os.CreateTemp("", "h2-winsize-*.txt")
+// TileIterative sets up tiled panes iteratively — one tab at a time.
+// For overflow tabs, it opens a new tab, detects its size, computes the
+// layout, and sets it up before moving to the next batch.
+func (d *Driver) TileIterative(tab0 tilelayout.TabLayout, overflow []string, cfg tilelayout.LayoutConfig, h2Binary string) error {
+	if len(tab0.Panes) == 0 {
+		return fmt.Errorf("empty layout")
+	}
+
+	firstAgent := tab0.Panes[0].AgentName
+
+	// Single pane, no overflow: just exec directly.
+	if len(tab0.Panes) == 1 && len(overflow) == 0 {
+		return syscall.Exec(h2Binary, []string{"h2", "attach", firstAgent}, os.Environ())
+	}
+
+	// Execute tab 0 setup.
+	if err := runTabScript(tab0, true); err != nil {
+		return fmt.Errorf("tab 0 setup failed: %w", err)
+	}
+
+	// Process overflow tabs iteratively.
+	remaining := overflow
+	tabIdx := 1
+	for len(remaining) > 0 {
+		// Open new tab.
+		if err := osascript(`tell application "Ghostty" to new tab in front window`); err != nil {
+			return fmt.Errorf("open tab %d: %w", tabIdx, err)
+		}
+		time.Sleep(500 * time.Millisecond)
+
+		// Detect the new tab's size.
+		size, err := detectCurrentTabSize()
+		if err != nil {
+			return fmt.Errorf("detect tab %d size: %w", tabIdx, err)
+		}
+
+		// Compute layout for this tab.
+		var tab tilelayout.TabLayout
+		tab, remaining = tilelayout.ComputeTabLayout(remaining, size, tabIdx, cfg)
+
+		// Execute this tab's setup.
+		if err := runTabScript(tab, false); err != nil {
+			return fmt.Errorf("tab %d setup failed: %w", tabIdx, err)
+		}
+
+		tabIdx++
+	}
+
+	// Navigate back to tab 0.
+	if tabIdx > 1 {
+		for i := 1; i < tabIdx; i++ {
+			osascript(fmt.Sprintf(`tell application "Ghostty" to perform action "previous_tab" on (%s)`, ghosttyTerm))
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	// Navigate to (0,0) in tab 0 for the exec.
+	for r := 1; r < tab0.Rows; r++ {
+		osascript(fmt.Sprintf(`tell application "Ghostty" to perform action "goto_split:up" on (%s)`, ghosttyTerm))
+	}
+	if tab0.Rows > 1 {
+		time.Sleep(50 * time.Millisecond)
+	}
+	for c := 1; c < tab0.Cols; c++ {
+		osascript(fmt.Sprintf(`tell application "Ghostty" to perform action "goto_split:left" on (%s)`, ghosttyTerm))
+	}
+	if tab0.Cols > 1 {
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Replace current process with h2 attach for the first agent.
+	return syscall.Exec(h2Binary, []string{"h2", "attach", firstAgent}, os.Environ())
+}
+
+// detectCurrentTabSize reads the terminal size of the currently focused tab
+// by typing a tput command that writes to a temp file.
+func detectCurrentTabSize() (tilelayout.ScreenSize, error) {
+	tmpFile, err := os.CreateTemp("", "h2-tabsize-*.txt")
 	if err != nil {
-		return tilelayout.ScreenSize{}, fmt.Errorf("create temp file: %w", err)
+		return tilelayout.ScreenSize{}, err
 	}
 	tmpPath := tmpFile.Name()
 	tmpFile.Close()
 	defer os.Remove(tmpPath)
 
-	// Open a temp tab via AppleScript.
-	if err := osascript(`tell application "Ghostty" to new tab in front window`); err != nil {
-		return tilelayout.ScreenSize{}, fmt.Errorf("open temp tab: %w", err)
-	}
-	time.Sleep(500 * time.Millisecond)
-
-	// Type a command into the new tab that writes cols/rows to the temp file,
-	// then immediately closes the tab via exit.
-	// Ghostty's AppleScript input text interprets \n as Enter.
-	sizeCmd := fmt.Sprintf(`echo "$(tput cols) $(tput lines)" > %s; exit`, tmpPath)
+	// Type size detection command + press Enter.
+	sizeCmd := fmt.Sprintf(`echo "$(tput cols) $(tput lines)" > %s`, tmpPath)
 	escaped := strings.ReplaceAll(sizeCmd, `"`, `\"`)
-	inputScript := fmt.Sprintf(`tell application "Ghostty"
-set t to focused terminal of selected tab of front window
-input text "%s\n" to t
-end tell`, escaped)
-	osascript(inputScript)
+	osascript(fmt.Sprintf(`tell application "Ghostty"
+set t to %s
+input text "%s" to t
+send key "enter" to t
+end tell`, ghosttyTerm, escaped))
 
-	// Wait for the command to execute and the tab to close.
-	var size tilelayout.ScreenSize
+	// Wait for the file to be written.
 	for i := 0; i < 20; i++ {
 		time.Sleep(200 * time.Millisecond)
 		data, err := os.ReadFile(tmpPath)
@@ -83,70 +135,15 @@ end tell`, escaped)
 			cols, errC := strconv.Atoi(parts[0])
 			rows, errR := strconv.Atoi(parts[1])
 			if errC == nil && errR == nil && cols > 0 && rows > 0 {
-				size = tilelayout.ScreenSize{Cols: cols, Rows: rows}
-				break
+				return tilelayout.ScreenSize{Cols: cols, Rows: rows}, nil
 			}
 		}
 	}
 
-	// Navigate back to the original tab (exit should have closed the temp tab,
-	// but previous_tab is safe if it already closed).
-	osascript(`tell application "Ghostty" to perform action "previous_tab" on (focused terminal of selected tab of front window)`)
-	time.Sleep(100 * time.Millisecond)
-
-	if size.Cols == 0 {
-		return tilelayout.ScreenSize{}, fmt.Errorf("failed to read window size from temp tab")
-	}
-	return size, nil
+	return tilelayout.ScreenSize{}, fmt.Errorf("timed out reading tab size")
 }
 
-// Tile creates Ghostty splits, types `h2 attach` in each pane, then
-// execs into the first agent's attach session in the current pane.
-func (d *Driver) Tile(layout tilelayout.TileLayout, h2Binary string) error {
-	if len(layout.Tabs) == 0 || len(layout.Tabs[0].Panes) == 0 {
-		return fmt.Errorf("empty layout")
-	}
-
-	firstAgent := layout.Tabs[0].Panes[0].AgentName
-
-	// Single pane: no splits needed, just exec directly.
-	if layout.TotalPanes() == 1 {
-		return syscall.Exec(h2Binary, []string{"h2", "attach", firstAgent}, os.Environ())
-	}
-
-	script := generateScript(layout)
-
-	// Write and execute setup script.
-	f, err := os.CreateTemp("", "h2-tile-*.sh")
-	if err != nil {
-		return fmt.Errorf("create tile script: %w", err)
-	}
-	tmpPath := f.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := f.WriteString(script); err != nil {
-		f.Close()
-		return fmt.Errorf("write tile script: %w", err)
-	}
-	f.Close()
-
-	if err := os.Chmod(tmpPath, 0o755); err != nil {
-		return fmt.Errorf("chmod tile script: %w", err)
-	}
-
-	cmd := exec.Command("bash", tmpPath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("tile setup failed: %w", err)
-	}
-
-	// Replace current process with h2 attach for the first agent.
-	return syscall.Exec(h2Binary, []string{"h2", "attach", firstAgent}, os.Environ())
-}
-
-// osascript runs an AppleScript snippet via the osascript CLI.
-// Uses stdin to preserve literal escape sequences like \n in the script.
+// osascript runs an AppleScript snippet via stdin to preserve escape sequences.
 func osascript(script string) error {
 	cmd := exec.Command("osascript")
 	cmd.Stdin = strings.NewReader(script)
@@ -156,68 +153,45 @@ func osascript(script string) error {
 // ghosttyTerm is the AppleScript expression for the focused terminal.
 const ghosttyTerm = "focused terminal of selected tab of front window"
 
-// generateScript produces a bash script that creates the tiled layout.
-//
-// Uses Ghostty's native AppleScript support (Ghostty 1.3+) for all
-// operations. No Accessibility permissions required.
-//
-// Grid build strategy (per tab):
-//  1. Create columns by splitting right (C-1 times).
-//  2. Build rows right-to-left: in each column, split down (R-1 times),
-//     then navigate left to the next column.
-//  3. Navigate to top-left pane.
-//  4. Walk column-major through the grid, typing `h2 attach <name>` in
-//     each pane (except (0,0) of the first tab, which gets exec'd later).
-func generateScript(layout tilelayout.TileLayout) string {
+// runTabScript generates and executes the bash script for a single tab.
+func runTabScript(tab tilelayout.TabLayout, isFirstTab bool) error {
+	script := generateTabScript(tab, isFirstTab)
+
+	f, err := os.CreateTemp("", "h2-tile-*.sh")
+	if err != nil {
+		return err
+	}
+	tmpPath := f.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := f.WriteString(script); err != nil {
+		f.Close()
+		return err
+	}
+	f.Close()
+
+	if err := os.Chmod(tmpPath, 0o755); err != nil {
+		return err
+	}
+
+	cmd := exec.Command("bash", tmpPath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// generateTabScript produces a bash script for setting up a single tab.
+func generateTabScript(tab tilelayout.TabLayout, isFirstTab bool) string {
 	var b strings.Builder
 	b.WriteString("#!/bin/bash\n")
-	b.WriteString("# Generated by h2 attach --tile\n")
-	b.WriteString("# Uses Ghostty AppleScript (1.3+), no Accessibility permissions needed\n\n")
+	b.WriteString("# Generated by h2 attach --tile\n\n")
 
-	b.WriteString("TERM=$(osascript -e 'tell application \"Ghostty\" to " + ghosttyTerm + "')\n\n")
+	writeBuildPhase(&b, tab)
 
-	for tabIdx, tab := range layout.Tabs {
-		if tabIdx > 0 {
-			writeOsascript(&b, `tell application "Ghostty" to new tab in front window`)
-			writeSleep(&b, 500)
-			// Re-acquire terminal reference for new tab.
-			b.WriteString("TERM=$(osascript -e 'tell application \"Ghostty\" to " + ghosttyTerm + "')\n")
-		}
+	// Wait for shells in new panes to initialize.
+	writeSleep(&b, 800)
 
-		writeBuildPhase(&b, tab)
-
-		// Wait for shells in new panes to initialize.
-		writeSleep(&b, 800)
-
-		writeTypePhase(&b, tab, tabIdx == 0)
-	}
-
-	// Return to the first tab if overflow tabs were created.
-	if len(layout.Tabs) > 1 {
-		b.WriteString("\n# Return to first tab\n")
-		for i := 1; i < len(layout.Tabs); i++ {
-			writePerformAction(&b, "previous_tab")
-			writeSleep(&b, 100)
-		}
-	}
-
-	// Navigate to (0,0) in the first tab for the exec.
-	if len(layout.Tabs) > 0 {
-		tab := layout.Tabs[0]
-		b.WriteString("\n# Focus top-left pane for exec\n")
-		for r := 1; r < tab.Rows; r++ {
-			writePerformAction(&b, "goto_split:up")
-		}
-		if tab.Rows > 1 {
-			writeSleep(&b, 50)
-		}
-		for c := 1; c < tab.Cols; c++ {
-			writePerformAction(&b, "goto_split:left")
-		}
-		if tab.Cols > 1 {
-			writeSleep(&b, 50)
-		}
-	}
+	writeTypePhase(&b, tab, isFirstTab)
 
 	return b.String()
 }
@@ -305,10 +279,6 @@ func writeTypePhase(b *strings.Builder, tab tilelayout.TabLayout, isFirstTab boo
 	b.WriteByte('\n')
 }
 
-func writeOsascript(b *strings.Builder, script string) {
-	fmt.Fprintf(b, "osascript -e '%s'\n", script)
-}
-
 func writePerformAction(b *strings.Builder, action string) {
 	fmt.Fprintf(b, "osascript -e 'tell application \"Ghostty\" to perform action \"%s\" on (%s)'\n", action, ghosttyTerm)
 }
@@ -322,17 +292,15 @@ func writeSleep(b *strings.Builder, ms int) {
 }
 
 func writeTypeAttach(b *strings.Builder, agentName string) {
-	// Use Ghostty's AppleScript input text to write directly to the focused pane.
-	// Ghostty interprets \n in the input text string as Enter.
 	escaped := strings.ReplaceAll(agentName, `\`, `\\`)
 	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-	// Use multi-statement AppleScript via heredoc to preserve the \n literal.
 	fmt.Fprintf(b, `osascript <<'APPLESCRIPT'
 tell application "Ghostty"
-set t to focused terminal of selected tab of front window
-input text "h2 attach %s\n" to t
+set t to %s
+input text "h2 attach %s" to t
+send key "enter" to t
 end tell
 APPLESCRIPT
-`, escaped)
+`, ghosttyTerm, escaped)
 	writeSleep(b, 300)
 }

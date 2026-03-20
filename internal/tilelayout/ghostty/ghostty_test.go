@@ -7,12 +7,12 @@ import (
 	"h2/internal/tilelayout"
 )
 
-func TestGenerateScript_TwoAgents(t *testing.T) {
-	layout := tilelayout.ComputeLayout([]string{"a1", "a2"}, tilelayout.ScreenSize{Cols: 240, Rows: 60}, tilelayout.ScreenSize{}, tilelayout.DefaultConfig())
-	script := generateScript(layout)
+func TestGenerateTabScript_TwoAgents(t *testing.T) {
+	tab, _ := tilelayout.ComputeTabLayout([]string{"a1", "a2"}, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, tilelayout.DefaultConfig())
+	script := generateTabScript(tab, true)
 
 	// Cols-first: 2 agents → 2 columns, 1 right split, no down splits.
-	if !strings.Contains(script, "split") && !strings.Contains(script, "direction right") {
+	if !strings.Contains(script, "direction right") {
 		t.Error("expected split right")
 	}
 	if strings.Contains(script, "direction down") {
@@ -28,17 +28,20 @@ func TestGenerateScript_TwoAgents(t *testing.T) {
 	}
 }
 
-func TestGenerateScript_ThreeByThree(t *testing.T) {
+func TestGenerateTabScript_ThreeByThree(t *testing.T) {
 	agents := []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9"}
-	layout := tilelayout.ComputeLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, tilelayout.ScreenSize{}, tilelayout.DefaultConfig())
-	script := generateScript(layout)
+	tab, remaining := tilelayout.ComputeTabLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, tilelayout.DefaultConfig())
+	if len(remaining) != 0 {
+		t.Errorf("expected no overflow, got %d", len(remaining))
+	}
+	script := generateTabScript(tab, true)
 
-	// Should have 2 right splits for 3 columns.
+	// 2 right splits for 3 columns.
 	if strings.Count(script, "direction right") != 2 {
 		t.Errorf("expected 2 split right, got %d", strings.Count(script, "direction right"))
 	}
 
-	// Each column has 3 rows → 2 down splits per column = 6 total.
+	// 3 rows per column → 2 down splits x 3 columns = 6.
 	if strings.Count(script, "direction down") != 6 {
 		t.Errorf("expected 6 split down, got %d", strings.Count(script, "direction down"))
 	}
@@ -54,47 +57,53 @@ func TestGenerateScript_ThreeByThree(t *testing.T) {
 	}
 }
 
-func TestGenerateScript_UnevenColumns(t *testing.T) {
+func TestGenerateTabScript_UnevenColumns(t *testing.T) {
 	agents := []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7"}
-	layout := tilelayout.ComputeLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, tilelayout.ScreenSize{}, tilelayout.DefaultConfig())
-	script := generateScript(layout)
+	tab, _ := tilelayout.ComputeTabLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, tilelayout.DefaultConfig())
+	script := generateTabScript(tab, true)
 
 	// 3 cols: 2 right splits.
 	if strings.Count(script, "direction right") != 2 {
 		t.Errorf("expected 2 split right, got %d", strings.Count(script, "direction right"))
 	}
-	// 7 agents in 3x3 grid: col 0 has 3 rows (2 down splits), col 1 has 3 rows (2 down splits),
-	// col 2 has 1 row (0 down splits). Total = 4.
+	// 7 agents in 3x3 grid: cols 0,1 have 3 rows (2 down each), col 2 has 1 (0 down). Total = 4.
 	if strings.Count(script, "direction down") != 4 {
 		t.Errorf("expected 4 split down, got %d", strings.Count(script, "direction down"))
 	}
 }
 
-func TestGenerateScript_MultiTab(t *testing.T) {
+func TestGenerateTabScript_Overflow(t *testing.T) {
 	agents := make([]string, 12)
 	for i := range agents {
 		agents[i] = "a" + string(rune('A'+i))
 	}
-	layout := tilelayout.ComputeLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, tilelayout.ScreenSize{}, tilelayout.DefaultConfig())
-	script := generateScript(layout)
-
-	// Should have new tab for the second tab.
-	if !strings.Contains(script, "new tab in front window") {
-		t.Error("expected new tab for overflow")
+	tab, remaining := tilelayout.ComputeTabLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, tilelayout.DefaultConfig())
+	if len(tab.Panes) != 9 {
+		t.Errorf("expected 9 panes in tab 0, got %d", len(tab.Panes))
 	}
-
-	// Should navigate back to first tab.
-	if !strings.Contains(script, `perform action "previous_tab"`) {
-		t.Error("expected previous_tab to return to first tab")
+	if len(remaining) != 3 {
+		t.Errorf("expected 3 overflow agents, got %d", len(remaining))
 	}
 }
 
-func TestGenerateScript_SinglePaneTab(t *testing.T) {
-	// Single agent layout: no splits in the generated script.
-	layout := tilelayout.ComputeLayout([]string{"solo"}, tilelayout.ScreenSize{Cols: 240, Rows: 60}, tilelayout.ScreenSize{}, tilelayout.DefaultConfig())
-	script := generateScript(layout)
+func TestGenerateTabScript_SinglePane(t *testing.T) {
+	tab, _ := tilelayout.ComputeTabLayout([]string{"solo"}, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, tilelayout.DefaultConfig())
+	script := generateTabScript(tab, true)
 
 	if strings.Contains(script, "split") {
 		t.Error("single pane should not have splits")
+	}
+}
+
+func TestGenerateTabScript_NonFirstTab(t *testing.T) {
+	// Non-first tab should type attach for ALL panes including (0,0).
+	tab, _ := tilelayout.ComputeTabLayout([]string{"a1", "a2"}, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 1, tilelayout.DefaultConfig())
+	script := generateTabScript(tab, false)
+
+	if !strings.Contains(script, `h2 attach a1`) {
+		t.Error("non-first tab should type attach for a1")
+	}
+	if !strings.Contains(script, `h2 attach a2`) {
+		t.Error("non-first tab should type attach for a2")
 	}
 }

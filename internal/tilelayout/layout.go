@@ -77,6 +77,66 @@ func (l TileLayout) TotalPanes() int {
 	return n
 }
 
+// ComputeTabLayout computes the layout for a single tab given its screen size.
+// It returns the tab layout and the remaining agents that didn't fit.
+func ComputeTabLayout(agents []string, screen ScreenSize, tabIdx int, cfg LayoutConfig) (TabLayout, []string) {
+	maxCols := max(1, screen.Cols/cfg.MinPaneWidth)
+	maxRows := max(1, screen.Rows/cfg.MinPaneHeight)
+	maxPerTab := maxCols * maxRows
+
+	n := min(len(agents), maxPerTab)
+	batch := agents[:n]
+	remaining := agents[n:]
+
+	// Determine grid dimensions: fill columns (horizontal) first,
+	// then add rows. This keeps panes wider on wide monitors.
+	cols := min(len(batch), maxCols)
+	rows := (len(batch) + cols - 1) / cols
+
+	// Compute pane dimensions. Last column/row absorbs remainder
+	// so the total adds up to the screen size exactly.
+	baseWidth := screen.Cols / max(1, cols)
+
+	var panes []PaneAssignment
+	idx := 0
+	for c := 0; c < cols && idx < len(batch); c++ {
+		colRows := rows
+		if leftover := len(batch) - idx; leftover < rows {
+			colRows = leftover
+		}
+		baseHeight := screen.Rows / max(1, colRows)
+
+		paneWidth := baseWidth
+		if c == cols-1 {
+			paneWidth = screen.Cols - baseWidth*(cols-1)
+		}
+
+		for r := 0; r < colRows; r++ {
+			paneHeight := baseHeight
+			if r == colRows-1 {
+				paneHeight = screen.Rows - baseHeight*(colRows-1)
+			}
+			panes = append(panes, PaneAssignment{
+				AgentName: batch[idx],
+				Tab:       tabIdx,
+				Row:       r,
+				Col:       c,
+				Width:     paneWidth,
+				Height:    paneHeight,
+			})
+			idx++
+		}
+	}
+
+	return TabLayout{
+		Cols:       cols,
+		Rows:       rows,
+		ScreenCols: screen.Cols,
+		ScreenRows: screen.Rows,
+		Panes:      panes,
+	}, remaining
+}
+
 // ComputeLayout distributes agents across a tiled grid.
 //
 // Agents are arranged column-major: rows are filled top-to-bottom in each
@@ -100,78 +160,31 @@ func ComputeLayout(agents []string, currentSize, overflowSize ScreenSize, cfg La
 	remaining := agents
 
 	for len(remaining) > 0 {
-		// First tab uses current pane size; overflow tabs use full window size.
 		screen := overflowSize
 		if len(tabs) == 0 {
 			screen = currentSize
 		}
 
-		maxCols := max(1, screen.Cols/cfg.MinPaneWidth)
-		maxRows := max(1, screen.Rows/cfg.MinPaneHeight)
-		maxPerTab := maxCols * maxRows
-
-		n := min(len(remaining), maxPerTab)
-		batch := remaining[:n]
-		remaining = remaining[n:]
-
-		// Determine grid dimensions: fill columns (horizontal) first,
-		// then add rows. This keeps panes wider on wide monitors.
-		cols := min(len(batch), maxCols)
-		rows := (len(batch) + cols - 1) / cols
-
-		// Compute pane dimensions. Last column/row absorbs remainder
-		// so the total adds up to the screen size exactly.
-		baseWidth := screen.Cols / max(1, cols)
-
-		var panes []PaneAssignment
-		idx := 0
-		for c := 0; c < cols && idx < len(batch); c++ {
-			colRows := rows
-			if leftover := len(batch) - idx; leftover < rows {
-				colRows = leftover
-			}
-			baseHeight := screen.Rows / max(1, colRows)
-
-			paneWidth := baseWidth
-			if c == cols-1 {
-				paneWidth = screen.Cols - baseWidth*(cols-1)
-			}
-
-			for r := 0; r < colRows; r++ {
-				paneHeight := baseHeight
-				if r == colRows-1 {
-					paneHeight = screen.Rows - baseHeight*(colRows-1)
-				}
-				panes = append(panes, PaneAssignment{
-					AgentName: batch[idx],
-					Tab:       len(tabs),
-					Row:       r,
-					Col:       c,
-					Width:     paneWidth,
-					Height:    paneHeight,
-				})
-				idx++
-			}
-		}
-
-		tabs = append(tabs, TabLayout{
-			Cols:       cols,
-			Rows:       rows,
-			ScreenCols: screen.Cols,
-			ScreenRows: screen.Rows,
-			Panes:      panes,
-		})
+		var tab TabLayout
+		tab, remaining = ComputeTabLayout(remaining, screen, len(tabs), cfg)
+		tabs = append(tabs, tab)
 	}
 
 	return TileLayout{Tabs: tabs}
 }
 
 // PrintDryRun writes a human-readable summary of the layout to w.
-func PrintDryRun(layout TileLayout, w io.Writer) {
-	total := layout.TotalPanes()
+// overflowAgents lists agents that will be placed in additional tabs
+// whose sizes are determined at runtime.
+func PrintDryRun(layout TileLayout, overflowAgents []string, w io.Writer) {
+	total := layout.TotalPanes() + len(overflowAgents)
 	nTabs := len(layout.Tabs)
-
-	fmt.Fprintf(w, "Tile layout: %d panes across %d tab(s)\n", total, nTabs)
+	if len(overflowAgents) > 0 {
+		fmt.Fprintf(w, "Tile layout: %d panes (%d in current tab, %d in additional tabs)\n",
+			total, layout.TotalPanes(), len(overflowAgents))
+	} else {
+		fmt.Fprintf(w, "Tile layout: %d panes across %d tab(s)\n", total, nTabs)
+	}
 
 	paneNum := 1
 	for tabIdx, tab := range layout.Tabs {
@@ -187,6 +200,14 @@ func PrintDryRun(layout TileLayout, w io.Writer) {
 		for _, p := range tab.Panes {
 			fmt.Fprintf(w, "  %-4d %-28s %5d %5d %7d %8d\n",
 				paneNum, p.AgentName, p.Col, p.Row, p.Width, p.Height)
+			paneNum++
+		}
+	}
+
+	if len(overflowAgents) > 0 {
+		fmt.Fprintf(w, "\nOverflow — %d agents in new tabs (layout determined at runtime):\n", len(overflowAgents))
+		for _, name := range overflowAgents {
+			fmt.Fprintf(w, "  %-4d %s\n", paneNum, name)
 			paneNum++
 		}
 	}
