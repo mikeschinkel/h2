@@ -61,11 +61,14 @@ func (d *Driver) DetectFullWindowSize() (tilelayout.ScreenSize, error) {
 
 	// Type a command into the new tab that writes cols/rows to the temp file,
 	// then immediately closes the tab via exit.
+	// Ghostty's AppleScript input text interprets \n as Enter.
 	sizeCmd := fmt.Sprintf(`echo "$(tput cols) $(tput lines)" > %s; exit`, tmpPath)
 	escaped := strings.ReplaceAll(sizeCmd, `"`, `\"`)
-	// Use AppleScript's `return` character to append a real newline (Enter).
-	script := fmt.Sprintf(`tell application "Ghostty" to input text ("%s" & return) to (focused terminal of selected tab of front window)`, escaped)
-	osascript(script)
+	inputScript := fmt.Sprintf(`tell application "Ghostty"
+set t to focused terminal of selected tab of front window
+input text "%s\n" to t
+end tell`, escaped)
+	osascript(inputScript)
 
 	// Wait for the command to execute and the tab to close.
 	var size tilelayout.ScreenSize
@@ -143,8 +146,11 @@ func (d *Driver) Tile(layout tilelayout.TileLayout, h2Binary string) error {
 }
 
 // osascript runs an AppleScript snippet via the osascript CLI.
+// Uses stdin to preserve literal escape sequences like \n in the script.
 func osascript(script string) error {
-	return exec.Command("osascript", "-e", script).Run()
+	cmd := exec.Command("osascript")
+	cmd.Stdin = strings.NewReader(script)
+	return cmd.Run()
 }
 
 // ghosttyTerm is the AppleScript expression for the focused terminal.
@@ -317,9 +323,16 @@ func writeSleep(b *strings.Builder, ms int) {
 
 func writeTypeAttach(b *strings.Builder, agentName string) {
 	// Use Ghostty's AppleScript input text to write directly to the focused pane.
-	// AppleScript's `return` appends a real Enter keypress.
+	// Ghostty interprets \n in the input text string as Enter.
 	escaped := strings.ReplaceAll(agentName, `\`, `\\`)
 	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-	fmt.Fprintf(b, "osascript -e 'tell application \"Ghostty\" to input text (\"h2 attach %s\" & return) to (%s)'\n", escaped, ghosttyTerm)
+	// Use multi-statement AppleScript via heredoc to preserve the \n literal.
+	fmt.Fprintf(b, `osascript <<'APPLESCRIPT'
+tell application "Ghostty"
+set t to focused terminal of selected tab of front window
+input text "h2 attach %s\n" to t
+end tell
+APPLESCRIPT
+`, escaped)
 	writeSleep(b, 300)
 }
