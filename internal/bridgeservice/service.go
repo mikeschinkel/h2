@@ -17,6 +17,8 @@ import (
 	"h2/internal/socketdir"
 )
 
+const defaultConciergeFailureThreshold = 2
+
 // Service manages bridge instances and routes messages between external
 // platforms (Telegram, macOS notifications) and h2 agent sessions.
 type Service struct {
@@ -24,6 +26,7 @@ type Service struct {
 	name               string        // bridge config name (used in socket name and status)
 	concierge          string        // session name, empty if --no-concierge; guarded by mu
 	conciergeAlive     bool          // whether the concierge agent socket is reachable; guarded by mu
+	conciergeFailures  int           // consecutive failed concierge liveness probes; guarded by mu
 	pod                string        // pod name, empty for standalone bridges
 	socketDir          string        // ~/.h2/sockets/
 	lastSender         string        // tracks last agent who sent outbound
@@ -31,6 +34,7 @@ type Service struct {
 	allowedCommands    []string      // slash commands allowed on this bridge
 	expectsResponse    bool          // auto-set --expects-response on inbound messages
 	typingTickInterval time.Duration // interval between typing indicator ticks; 0 uses default
+	queryAgentStateFn  func(string) (string, error)
 	cancel             context.CancelFunc
 
 	// Status tracking.
@@ -53,17 +57,19 @@ type ServiceOpts struct {
 // New creates a bridge service.
 func New(bridges []bridge.Bridge, name, concierge, pod, socketDir string, allowedCommands []string, opts ...ServiceOpts) *Service {
 	s := &Service{
-		bridges:         bridges,
-		name:            name,
-		concierge:       concierge,
-		pod:             pod,
-		socketDir:       socketDir,
-		allowedCommands: allowedCommands,
-		startTime:       time.Now(),
+		bridges:           bridges,
+		name:              name,
+		concierge:         concierge,
+		pod:               pod,
+		socketDir:         socketDir,
+		allowedCommands:   allowedCommands,
+		startTime:         time.Now(),
+		queryAgentStateFn: nil,
 	}
 	if len(opts) > 0 {
 		s.expectsResponse = opts[0].ExpectsResponse
 	}
+	s.queryAgentStateFn = s.queryAgentState
 	return s
 }
 
@@ -472,23 +478,33 @@ func (s *Service) runTypingLoop(ctx context.Context) {
 
 			// Track concierge liveness.
 			if concierge != "" {
-				_, err := s.queryAgentState(concierge)
+				_, err := s.queryAgentStateFn(concierge)
 				if err != nil {
-					if wasAlive {
-						s.mu.Lock()
+					shouldNotifyDown := false
+					s.mu.Lock()
+					s.conciergeFailures++
+					if wasAlive && s.conciergeFailures >= defaultConciergeFailureThreshold {
 						s.conciergeAlive = false
 						s.lastRoutedAgent = "" // reset stale typing target
-						s.mu.Unlock()
+						shouldNotifyDown = true
+					}
+					s.mu.Unlock()
+					if shouldNotifyDown {
 						s.handleConciergeDown(ctx, concierge)
 					}
 				} else {
+					shouldNotifyUp := false
+					s.mu.Lock()
+					s.conciergeFailures = 0
 					if !wasAlive {
+						shouldNotifyUp = true
+					}
+					s.conciergeAlive = true
+					s.mu.Unlock()
+					if shouldNotifyUp {
 						// Concierge came back — auto-reassociate.
 						s.handleConciergeUp(ctx, concierge)
 					}
-					s.mu.Lock()
-					s.conciergeAlive = true
-					s.mu.Unlock()
 				}
 			}
 
@@ -502,7 +518,7 @@ func (s *Service) runTypingLoop(ctx context.Context) {
 			if typingTarget == "" {
 				continue
 			}
-			state, err := s.queryAgentState(typingTarget)
+			state, err := s.queryAgentStateFn(typingTarget)
 			if err != nil || state != "active" {
 				continue
 			}

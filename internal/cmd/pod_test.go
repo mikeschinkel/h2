@@ -398,3 +398,103 @@ agents:
 		t.Errorf("expected agent name 'staging-worker', got %q", rc.AgentName)
 	}
 }
+
+func TestPodLaunchBridges_SkipsBridgeAlreadyRunningForSamePod(t *testing.T) {
+	h2Root := setupPodTestEnv(t)
+	sockDir := filepath.Join(h2Root, "sockets")
+
+	configYAML := `bridges:
+  personal:
+    macos_notify:
+      enabled: true
+`
+	if err := os.WriteFile(filepath.Join(h2Root, "config.yaml"), []byte(configYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	agentSock := filepath.Join(sockDir, socketdir.Format(socketdir.TypeAgent, "sage"))
+	agentListener, err := net.Listen("unix", agentSock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { agentListener.Close() })
+	go func() {
+		for {
+			conn, err := agentListener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				req, err := message.ReadRequest(conn)
+				if err != nil {
+					return
+				}
+				if req.Type == "status" {
+					_ = message.SendResponse(conn, &message.Response{
+						OK: true,
+						Agent: &message.AgentInfo{
+							Name: "sage",
+							Pod:  "dev-pod",
+						},
+					})
+				}
+			}()
+		}
+	}()
+
+	bridgeSock := filepath.Join(sockDir, socketdir.Format(socketdir.TypeBridge, "personal"))
+	bridgeListener, err := net.Listen("unix", bridgeSock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stopRequests int
+	t.Cleanup(func() { bridgeListener.Close() })
+	go func() {
+		for {
+			conn, err := bridgeListener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				req, err := message.ReadRequest(conn)
+				if err != nil {
+					return
+				}
+				switch req.Type {
+				case "status":
+					_ = message.SendResponse(conn, &message.Response{
+						OK: true,
+						Bridge: &message.BridgeInfo{
+							Name: "personal",
+							Pod:  "dev-pod",
+						},
+					})
+				case "stop":
+					stopRequests++
+					_ = message.SendResponse(conn, &message.Response{OK: true})
+				}
+			}()
+		}
+	}()
+
+	origForkBridge := forkBridgeFunc
+	forkCalls := 0
+	forkBridgeFunc = func(bridgeName, concierge, pod string) error {
+		forkCalls++
+		return nil
+	}
+	t.Cleanup(func() { forkBridgeFunc = origForkBridge })
+
+	if err := podLaunchBridges([]config.PodBridge{{Bridge: "personal", Concierge: "sage"}}, "dev-pod"); err != nil {
+		t.Fatalf("podLaunchBridges returned error: %v", err)
+	}
+
+	if forkCalls != 0 {
+		t.Fatalf("expected no bridge relaunch, got %d fork call(s)", forkCalls)
+	}
+	if stopRequests != 0 {
+		t.Fatalf("expected no bridge stop request, got %d", stopRequests)
+	}
+}

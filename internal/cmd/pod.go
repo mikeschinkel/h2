@@ -207,6 +207,7 @@ func podLaunchBridges(bridges []config.PodBridge, pod string) error {
 
 	var bridgesFailed []string
 	var bridgesStarted []string
+	var bridgesSkipped []string
 
 	for _, pb := range bridges {
 		// Check if bridge is already running.
@@ -219,7 +220,17 @@ func podLaunchBridges(bridges []config.PodBridge, pod string) error {
 					if resp.Bridge.Pod != "" && resp.Bridge.Pod != pod {
 						return fmt.Errorf("bridge %q is already owned by pod %q; stop it first or remove from this pod", pb.Bridge, resp.Bridge.Pod)
 					}
-					// Same pod or standalone — stop and wait for socket cleanup before re-launch.
+					if resp.Bridge.Pod == pod {
+						fmt.Fprintf(os.Stderr, "  bridge %s already running", pb.Bridge)
+						if pb.Concierge != "" {
+							fmt.Fprintf(os.Stderr, " (concierge: %s)", pb.Concierge)
+						}
+						fmt.Fprintln(os.Stderr)
+						bridgesSkipped = append(bridgesSkipped, pb.Bridge)
+						continue
+					}
+					// Standalone bridge — stop and wait for socket cleanup before re-launch
+					// so the pod can claim ownership.
 					if _, err := stopExistingBridgeIfRunning(pb.Bridge); err != nil {
 						return fmt.Errorf("stop bridge %q before relaunch: %w", pb.Bridge, err)
 					}
@@ -231,7 +242,7 @@ func podLaunchBridges(bridges []config.PodBridge, pod string) error {
 			}
 		}
 
-		if err := bridgeservice.ForkBridge(pb.Bridge, pb.Concierge, pod); err != nil {
+		if err := forkBridgeFunc(pb.Bridge, pb.Concierge, pod); err != nil {
 			fmt.Fprintf(os.Stderr, "  Warning: bridge %q failed to start: %v\n", pb.Bridge, err)
 			bridgesFailed = append(bridgesFailed, pb.Bridge)
 			continue
@@ -249,6 +260,10 @@ func podLaunchBridges(bridges []config.PodBridge, pod string) error {
 		fmt.Fprintf(os.Stderr, "  Failed: %v\n", bridgesFailed)
 		fmt.Fprintf(os.Stderr, "  Started: %v\n", bridgesStarted)
 		return fmt.Errorf("%d bridge(s) failed to start", len(bridgesFailed))
+	}
+
+	if len(bridgesSkipped) > 0 {
+		fmt.Fprintf(os.Stderr, "Pod %q bridges: %d started, %d already running\n", pod, len(bridgesStarted), len(bridgesSkipped))
 	}
 
 	return nil

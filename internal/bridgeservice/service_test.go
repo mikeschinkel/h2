@@ -2,6 +2,7 @@ package bridgeservice
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -709,6 +710,51 @@ func TestTypingLoop_WorksWithoutConcierge(t *testing.T) {
 	calls := tb.TypingCalls()
 	if calls < 2 {
 		t.Errorf("expected >= 2 typing calls via fallback target, got %d", calls)
+	}
+}
+
+func TestTypingLoop_IgnoresSingleConciergeProbeFailure(t *testing.T) {
+	sender := &mockSender{name: "telegram"}
+	svc := New([]bridge.Bridge{sender}, "alice", "concierge", "", t.TempDir(), nil)
+	svc.conciergeAlive = true
+	svc.typingTickInterval = 20 * time.Millisecond
+
+	var (
+		mu    sync.Mutex
+		calls int
+	)
+	svc.queryAgentStateFn = func(name string) (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		if calls == 3 {
+			return "", errors.New("transient probe failure")
+		}
+		return "active", nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go svc.runTypingLoop(ctx)
+
+	time.Sleep(120 * time.Millisecond)
+	cancel()
+
+	msgs := sender.Messages()
+	for _, msg := range msgs {
+		if strings.Contains(msg, "concierge stopped") || strings.Contains(msg, "concierge reconnected") {
+			t.Fatalf("expected no concierge transition message after single failed probe, got %v", msgs)
+		}
+	}
+
+	svc.mu.Lock()
+	alive := svc.conciergeAlive
+	failures := svc.conciergeFailures
+	svc.mu.Unlock()
+	if !alive {
+		t.Fatal("expected concierge to remain alive after a single failed probe")
+	}
+	if failures != 0 {
+		t.Fatalf("expected probe failure counter to reset after recovery, got %d", failures)
 	}
 }
 

@@ -18,6 +18,8 @@ import (
 
 const conciergeSessionName = "concierge"
 
+var forkBridgeFunc = bridgeservice.ForkBridge
+
 func newBridgeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "bridge",
@@ -108,7 +110,7 @@ to route to an existing agent without spawning a new session.`,
 				fmt.Fprintf(os.Stderr, "Stopped existing bridge %q.\n", bridgeName)
 			}
 			fmt.Fprintf(os.Stderr, "Starting bridge %q...\n", bridgeName)
-			if err := bridgeservice.ForkBridge(bridgeName, concierge, ""); err != nil {
+			if err := forkBridgeFunc(bridgeName, concierge, ""); err != nil {
 				return err
 			}
 			fmt.Fprintf(os.Stderr, "Bridge service started.\n")
