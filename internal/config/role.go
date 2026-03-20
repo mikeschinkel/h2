@@ -155,7 +155,7 @@ func WorktreesDir() string {
 
 // ValidClaudePermissionModes lists all valid values for the claude_permission_mode field.
 var ValidClaudePermissionModes = []string{
-	"default", "delegate", "acceptEdits", "plan", "dontAsk", "bypassPermissions",
+	"default", "acceptEdits", "plan", "dontAsk", "bypassPermissions",
 }
 
 // ValidCodexAskForApproval lists valid values for permissions.codex.ask_for_approval.

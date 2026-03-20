@@ -107,7 +107,7 @@ A **role** is a named YAML file in `~/.h2/roles/` that defines how to launch an 
 | `codex_config_path` | string | `<h2>/codex-config/<profile>` | Explicit Codex config dir override |
 | `codex_config_path_prefix` | string | `<h2>/codex-config` | Prefix for auto-derived Codex config path |
 | **Permissions / Approval** | | | |
-| `claude_permission_mode` | string | | Claude Code `--permission-mode`: `default` \| `acceptEdits` \| `plan` \| `dontAsk` \| `bypassPermissions` \| `delegate` |
+| `claude_permission_mode` | string | | Claude Code `--permission-mode`: `default` \| `acceptEdits` \| `plan` \| `dontAsk` \| `bypassPermissions` |
 | `codex_sandbox_mode` | string | | Codex `--sandbox`: `read-only` \| `workspace-write` \| `danger-full-access` |
 | `codex_ask_for_approval` | string | | Codex `--ask-for-approval`: `untrusted` \| `on-request` \| `never` |
 | `permission_review` | object | | Permission review strategies: `dcg` (rule-based) and `ai_reviewer` (LLM-based). See below. |

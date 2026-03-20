@@ -180,12 +180,11 @@ settings: {}   # Extra Claude Code settings.json keys (yaml node)
 
 | Value | Description |
 |-------|-------------|
-| `default` | Normal permission flow — agent asks for approval |
+| `default` | Normal permission flow — agent asks for approval on first use of each tool |
 | `acceptEdits` | Auto-approve file edits, ask for other tools |
-| `plan` | Read-only planning mode |
-| `dontAsk` | Skip tools that would require permission |
-| `bypassPermissions` | Auto-approve everything (use with caution) |
-| `delegate` | Delegate permission decisions to h2's permission review system |
+| `plan` | Read-only planning mode — can analyze but not modify files or run commands |
+| `dontAsk` | Auto-deny tools unless pre-approved via permissions allow rules |
+| `bypassPermissions` | Skip permission prompts (except writes to `.git`, `.claude`, etc.) |
 
 **Codex** (`codex_sandbox_mode` / `codex_ask_for_approval`):
 
