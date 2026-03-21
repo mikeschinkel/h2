@@ -313,8 +313,10 @@ func (c *Client) submitCurrentInput() bool {
 	c.History = append(c.History, cmd)
 	c.Input = c.Input[:0]
 	c.CursorPos = 0
-	c.InputPriority = message.PriorityNormal
-	c.InputAction = InputActionNone
+	if c.InputAction == InputActionStash {
+		c.InputPriority = message.PriorityNormal
+		c.InputAction = InputActionNone
+	}
 	c.HistIdx = -1
 	c.Saved = nil
 	c.RenderInputBar()

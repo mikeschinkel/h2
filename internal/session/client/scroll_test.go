@@ -1178,6 +1178,28 @@ func TestMenu_EnterWithInputSubmitsAndExits(t *testing.T) {
 	}
 }
 
+func TestMenu_EnterWithInputKeepsAlternatePrioritySelected(t *testing.T) {
+	o := newTestClient(10, 80)
+	o.Mode = ModeMenu
+	o.Input = []byte("send urgently")
+	o.CursorPos = len(o.Input)
+	o.InputPriority = message.PriorityInterrupt
+
+	var gotPriority message.Priority
+	o.OnSubmit = func(t string, p message.Priority) {
+		gotPriority = p
+	}
+
+	o.HandleMenuBytes([]byte{'\r'}, 0, 1)
+
+	if gotPriority != message.PriorityInterrupt {
+		t.Fatalf("expected interrupt submission, got %s", gotPriority)
+	}
+	if o.InputPriority != message.PriorityInterrupt {
+		t.Fatalf("expected interrupt priority to remain selected, got %s", o.InputPriority)
+	}
+}
+
 func TestMenu_EnterWithInputStashesAndExits(t *testing.T) {
 	o := newTestClient(10, 80)
 	o.Mode = ModeMenu
@@ -1391,7 +1413,28 @@ func TestHandleDefaultBytes_EnterWithInputUsesSubmitHookForNormalPriority(t *tes
 		t.Fatalf("expected input to be cleared, got %q", string(o.Input))
 	}
 	if o.InputPriority != message.PriorityNormal {
-		t.Fatalf("expected priority reset to normal, got %s", o.InputPriority)
+		t.Fatalf("expected normal priority to remain selected, got %s", o.InputPriority)
+	}
+}
+
+func TestHandleDefaultBytes_EnterWithInputKeepsAlternatePrioritySelected(t *testing.T) {
+	o := newTestClient(10, 80)
+	o.Input = []byte("interrupt this")
+	o.CursorPos = len(o.Input)
+	o.InputPriority = message.PriorityInterrupt
+
+	var gotPriority message.Priority
+	o.OnSubmit = func(text string, pri message.Priority) {
+		gotPriority = pri
+	}
+
+	o.HandleDefaultBytes([]byte{'\r'}, 0, 1)
+
+	if gotPriority != message.PriorityInterrupt {
+		t.Fatalf("expected interrupt submission, got %s", gotPriority)
+	}
+	if o.InputPriority != message.PriorityInterrupt {
+		t.Fatalf("expected interrupt priority to remain selected, got %s", o.InputPriority)
 	}
 }
 
@@ -1422,7 +1465,7 @@ func TestHandleDefaultBytes_EnterWithInputStashesWithoutSubmitting(t *testing.T)
 		t.Fatalf("expected input to be cleared, got %q", string(o.Input))
 	}
 	if o.InputPriority != message.PriorityNormal {
-		t.Fatalf("expected priority reset to normal, got %s", o.InputPriority)
+		t.Fatalf("expected stash to reset to normal, got %s", o.InputPriority)
 	}
 }
 
