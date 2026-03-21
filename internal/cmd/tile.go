@@ -97,19 +97,30 @@ func resolveTileAgents(name string) ([]string, error) {
 	return []string{name}, nil
 }
 
-// podAgentNamesSorted returns sorted agent names for the given running pod.
+// podAgentNamesSorted returns agent names for the given running pod,
+// sorted by their PodIndex (YAML definition order).
 func podAgentNamesSorted(podName string) []string {
 	entries, err := socketdir.ListByType(socketdir.TypeAgent)
 	if err != nil {
 		return nil
 	}
-	var names []string
+	type agentEntry struct {
+		name     string
+		podIndex int
+	}
+	var agents []agentEntry
 	for _, e := range entries {
 		info := queryAgent(e.Path)
 		if info != nil && info.Pod == podName {
-			names = append(names, info.Name)
+			agents = append(agents, agentEntry{name: info.Name, podIndex: info.PodIndex})
 		}
 	}
-	sort.Strings(names)
+	sort.Slice(agents, func(i, j int) bool {
+		return agents[i].podIndex < agents[j].podIndex
+	})
+	names := make([]string, len(agents))
+	for i, a := range agents {
+		names[i] = a.name
+	}
 	return names
 }

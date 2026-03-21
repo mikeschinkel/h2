@@ -70,15 +70,15 @@ func buildCommandRuntimeConfig(command string) *config.RuntimeConfig {
 // The caller is responsible for loading the role and applying any overrides.
 // setupAndForkAgentQuiet is like setupAndForkAgent but suppresses output.
 // Used by pod launch which handles its own output.
-func setupAndForkAgentQuiet(name string, role *config.Role, pod string, overrides []string) error {
-	return doSetupAndForkAgent(name, role, true, pod, overrides, true)
+func setupAndForkAgentQuiet(name string, role *config.Role, pod string, podIndex int, overrides []string) error {
+	return doSetupAndForkAgent(name, role, true, pod, podIndex, overrides, true)
 }
 
-func setupAndForkAgent(name string, role *config.Role, detach bool, pod string, overrides []string) error {
-	return doSetupAndForkAgent(name, role, detach, pod, overrides, false)
+func setupAndForkAgent(name string, role *config.Role, detach bool, pod string, podIndex int, overrides []string) error {
+	return doSetupAndForkAgent(name, role, detach, pod, podIndex, overrides, false)
 }
 
-func doSetupAndForkAgent(name string, role *config.Role, detach bool, pod string, overrides []string, quiet bool) error {
+func doSetupAndForkAgent(name string, role *config.Role, detach bool, pod string, podIndex int, overrides []string, quiet bool) error {
 	if name == "" {
 		name = session.GenerateName()
 	}
@@ -164,6 +164,7 @@ func doSetupAndForkAgent(name string, role *config.Role, detach bool, pod string
 		HarnessSessionID:        harnessSessionID,
 		RoleName:                role.RoleName,
 		Pod:                     pod,
+		PodIndex:                podIndex,
 		HarnessType:             minRC.HarnessType,
 		HarnessConfigPathPrefix: minRC.HarnessConfigPathPrefix,
 		Profile:                 role.GetProfile(),

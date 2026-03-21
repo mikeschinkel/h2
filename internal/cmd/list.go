@@ -145,6 +145,13 @@ func groupByPod(agents []*message.AgentInfo, bridges []*message.BridgeInfo, podF
 		ensureBucket(b.Pod).bridges = append(ensureBucket(b.Pod).bridges, b)
 	}
 
+	// Sort agents within each pod bucket by PodIndex to preserve YAML ordering.
+	for _, b := range podMap {
+		sort.Slice(b.agents, func(i, j int) bool {
+			return b.agents[i].PodIndex < b.agents[j].PodIndex
+		})
+	}
+
 	// Filter by specific pod name.
 	if podFilter != "" && podFilter != "*" {
 		b := podMap[podFilter]

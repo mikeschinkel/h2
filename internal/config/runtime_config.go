@@ -18,6 +18,7 @@ type RuntimeConfig struct {
 	SessionID string `json:"session_id"`
 	RoleName  string `json:"role,omitempty"`
 	Pod       string `json:"pod,omitempty"`
+	PodIndex  int    `json:"pod_index,omitempty"` // position in pod YAML agent list (0-based)
 
 	// Harness configuration.
 	HarnessType             string `json:"harness_type"`

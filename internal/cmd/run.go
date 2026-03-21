@@ -189,7 +189,7 @@ By default, uses the "default" role from ~/.h2/roles/default.yaml.
 					printDryRun(rc)
 					return nil
 				}
-				return setupAndForkAgent(name, role, detach, pod, overrides)
+				return setupAndForkAgent(name, role, detach, pod, 0, overrides)
 			}
 
 			// Agent-type or command mode: --dry-run requires a role.

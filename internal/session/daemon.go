@@ -237,6 +237,7 @@ func (d *Daemon) AgentInfo() *message.AgentInfo {
 		SessionID:        s.RC.SessionID,
 		RoleName:         s.RC.RoleName,
 		Pod:              os.Getenv("H2_POD"),
+		PodIndex:         s.RC.PodIndex,
 		Uptime:           virtualterminal.FormatIdleDuration(uptime),
 		State:            st.String(),
 		SubState:         sub.String(),

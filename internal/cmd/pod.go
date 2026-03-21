@@ -107,7 +107,7 @@ func newPodLaunchCmd() *cobra.Command {
 			running := podRunningAgents(pod)
 
 			var started, skipped int
-			for _, agent := range expanded {
+			for i, agent := range expanded {
 				if running[agent.Name] {
 					fmt.Fprintf(os.Stderr, "  %s already running\n", agent.Name)
 					skipped++
@@ -153,7 +153,7 @@ func newPodLaunchCmd() *cobra.Command {
 					}
 				}
 
-				if err := setupAndForkAgentQuiet(agent.Name, role, pod, overrideSlice); err != nil {
+				if err := setupAndForkAgentQuiet(agent.Name, role, pod, i, overrideSlice); err != nil {
 					return fmt.Errorf("start agent %q: %w", agent.Name, err)
 				}
 				fmt.Fprintf(os.Stderr, "  %s started\n", agent.Name)
