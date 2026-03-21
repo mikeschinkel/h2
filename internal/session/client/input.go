@@ -233,6 +233,14 @@ func (c *Client) HandleMenuBytes(buf []byte, start, n int) int {
 			continue
 		}
 		switch b {
+		case 0x0D, 0x0A:
+			if len(c.Input) == 0 {
+				continue
+			}
+			if c.submitCurrentInput() {
+				c.setMode(ModeNormal)
+				c.RenderBar()
+			}
 		case 0x1C: // ctrl+\ — exit menu (toggle with default mode shortcut)
 			c.setMode(ModeNormal)
 			c.RenderBar()
@@ -280,6 +288,39 @@ func (c *Client) HandleMenuBytes(buf []byte, start, n int) int {
 	return n
 }
 
+func (c *Client) submitCurrentInput() bool {
+	if len(c.Input) == 0 {
+		return false
+	}
+	cmd := string(c.Input)
+	if c.InputAction == InputActionStash {
+		// Stash saves the draft to local history without sending it.
+	} else if c.OnSubmit != nil {
+		// Route all non-empty input through the session so it uses the
+		// message queue for the selected priority, including normal/steer.
+		c.OnSubmit(cmd, c.InputPriority)
+	} else {
+		// Fallback for tests or standalone clients without a submit hook.
+		if !c.writePTYOrHang(c.Input) {
+			return false
+		}
+		ptm := c.VT.Ptm
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			ptm.Write([]byte{'\r'})
+		}()
+	}
+	c.History = append(c.History, cmd)
+	c.Input = c.Input[:0]
+	c.CursorPos = 0
+	c.InputPriority = message.PriorityNormal
+	c.InputAction = InputActionNone
+	c.HistIdx = -1
+	c.Saved = nil
+	c.RenderInputBar()
+	return true
+}
+
 func (c *Client) HandleDefaultBytes(buf []byte, start, n int) int {
 	for i := start; i < n; {
 		if c.VT.ChildExited || c.VT.ChildHung {
@@ -306,37 +347,14 @@ func (c *Client) HandleDefaultBytes(buf []byte, start, n int) int {
 
 		case 0x0D, 0x0A:
 			if len(c.Input) > 0 {
-				cmd := string(c.Input)
-				if c.InputAction == InputActionStash {
-					// Stash saves the draft to local history without sending it.
-				} else if c.OnSubmit != nil {
-					// Route all non-empty input through the session so it uses the
-					// message queue for the selected priority, including normal/steer.
-					c.OnSubmit(cmd, c.InputPriority)
-				} else {
-					// Fallback for tests or standalone clients without a submit hook.
-					if !c.writePTYOrHang(c.Input) {
-						return n
-					}
-					ptm := c.VT.Ptm
-					go func() {
-						time.Sleep(50 * time.Millisecond)
-						ptm.Write([]byte{'\r'})
-					}()
+				if !c.submitCurrentInput() {
+					return n
 				}
-				c.History = append(c.History, cmd)
-				c.Input = c.Input[:0]
-				c.CursorPos = 0
-				c.InputPriority = message.PriorityNormal
-				c.InputAction = InputActionNone
 			} else {
 				if !c.writePTYOrHang([]byte{'\r'}) {
 					return n
 				}
 			}
-			c.HistIdx = -1
-			c.Saved = nil
-			c.RenderInputBar()
 
 		case 0x7F, 0x08:
 			if c.CursorPos > 0 {

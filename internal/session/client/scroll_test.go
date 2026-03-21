@@ -1144,6 +1144,74 @@ func TestMenu_OtherKeysIgnored(t *testing.T) {
 	}
 }
 
+func TestMenu_EnterWithInputSubmitsAndExits(t *testing.T) {
+	o := newTestClient(10, 80)
+	o.Mode = ModeMenu
+	o.Input = []byte("send this")
+	o.CursorPos = len(o.Input)
+	o.InputPriority = message.PriorityNormal
+
+	var (
+		called bool
+		text   string
+		pri    message.Priority
+	)
+	o.OnSubmit = func(t string, p message.Priority) {
+		called = true
+		text = t
+		pri = p
+	}
+
+	o.HandleMenuBytes([]byte{'\r'}, 0, 1)
+
+	if !called {
+		t.Fatal("expected menu Enter to submit input")
+	}
+	if text != "send this" || pri != message.PriorityNormal {
+		t.Fatalf("unexpected submission: %q %s", text, pri)
+	}
+	if o.Mode != ModeNormal {
+		t.Fatalf("expected ModeNormal after menu submit, got %d", o.Mode)
+	}
+	if len(o.Input) != 0 {
+		t.Fatalf("expected cleared input, got %q", string(o.Input))
+	}
+}
+
+func TestMenu_EnterWithInputStashesAndExits(t *testing.T) {
+	o := newTestClient(10, 80)
+	o.Mode = ModeMenu
+	o.Input = []byte("stash this")
+	o.CursorPos = len(o.Input)
+	o.InputAction = InputActionStash
+
+	var called bool
+	o.OnSubmit = func(t string, p message.Priority) { called = true }
+
+	o.HandleMenuBytes([]byte{'\r'}, 0, 1)
+
+	if called {
+		t.Fatal("expected stash in menu to avoid submit")
+	}
+	if o.Mode != ModeNormal {
+		t.Fatalf("expected ModeNormal after menu stash, got %d", o.Mode)
+	}
+	if len(o.History) != 1 || o.History[0] != "stash this" {
+		t.Fatalf("unexpected history: %#v", o.History)
+	}
+}
+
+func TestMenu_EnterWithEmptyInputDoesNothing(t *testing.T) {
+	o := newTestClient(10, 80)
+	o.Mode = ModeMenu
+
+	o.HandleMenuBytes([]byte{'\r'}, 0, 1)
+
+	if o.Mode != ModeMenu {
+		t.Fatalf("expected ModeMenu to remain, got %d", o.Mode)
+	}
+}
+
 func TestMenu_HelpLabel(t *testing.T) {
 	o := newTestClient(10, 80)
 	o.Mode = ModeMenu
