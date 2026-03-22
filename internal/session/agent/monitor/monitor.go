@@ -23,6 +23,7 @@ type AgentMonitor struct {
 
 	sessionID        string
 	onSessionStarted func(SessionStartedData)
+	onUsageLimit     func(UsageLimitData)
 	model            string
 
 	// Accumulated metrics from events.
@@ -113,11 +114,13 @@ func (m *AgentMonitor) processEvent(ev AgentEvent) {
 	}
 	m.subscribersMu.Unlock()
 
-	// Capture callback+data under lock, invoke after unlock to avoid
+	// Capture callbacks+data under lock, invoke after unlock to avoid
 	// blocking event processing or risking deadlock if callback calls
 	// monitor getters.
 	var sessionStartedCb func(SessionStartedData)
 	var sessionStartedData SessionStartedData
+	var usageLimitCb func(UsageLimitData)
+	var usageLimitData UsageLimitData
 
 	m.mu.Lock()
 	if !ev.Timestamp.IsZero() {
@@ -198,6 +201,8 @@ func (m *AgentMonitor) processEvent(ev AgentEvent) {
 		if data, ok := ev.Data.(UsageLimitData); ok {
 			m.usageLimitResetsAt = &data.ResetsAt
 			m.usageLimitMessage = data.Message
+			usageLimitCb = m.onUsageLimit
+			usageLimitData = data
 		}
 
 	case EventSessionEnded:
@@ -206,10 +211,13 @@ func (m *AgentMonitor) processEvent(ev AgentEvent) {
 
 	m.mu.Unlock()
 
-	// Invoke callback outside the lock so it can do I/O (e.g. persist
-	// RuntimeConfig) without blocking event processing.
+	// Invoke callbacks outside the lock so they can do I/O (e.g. persist
+	// RuntimeConfig, write ratelimit.json) without blocking event processing.
 	if sessionStartedCb != nil {
 		sessionStartedCb(sessionStartedData)
+	}
+	if usageLimitCb != nil {
+		usageLimitCb(usageLimitData)
 	}
 }
 
@@ -281,6 +289,13 @@ func (m *AgentMonitor) SessionID() string {
 // RuntimeConfig file. Must be called before Run.
 func (m *AgentMonitor) SetOnSessionStarted(fn func(SessionStartedData)) {
 	m.onSessionStarted = fn
+}
+
+// SetOnUsageLimit sets a callback invoked when EventUsageLimitInfo is
+// processed. The daemon uses this to persist rate limit info to disk.
+// Must be called before Run.
+func (m *AgentMonitor) SetOnUsageLimit(fn func(UsageLimitData)) {
+	m.onUsageLimit = fn
 }
 
 // Model returns the model name (set by EventSessionStarted).

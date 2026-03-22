@@ -576,6 +576,40 @@ func TestProcessEvent_UsageLimitInfo_ClearedOnStateChange(t *testing.T) {
 	}
 }
 
+func TestProcessEvent_UsageLimitInfo_CallbackFires(t *testing.T) {
+	m := New()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+
+	var callbackData UsageLimitData
+	callbackFired := make(chan struct{}, 1)
+	m.SetOnUsageLimit(func(data UsageLimitData) {
+		callbackData = data
+		callbackFired <- struct{}{}
+	})
+
+	resetsAt := time.Date(2026, 3, 12, 19, 0, 0, 0, time.UTC)
+	m.Events() <- AgentEvent{
+		Type:      EventUsageLimitInfo,
+		Timestamp: time.Now(),
+		Data:      UsageLimitData{ResetsAt: resetsAt, Message: "callback test"},
+	}
+
+	select {
+	case <-callbackFired:
+	case <-time.After(1 * time.Second):
+		t.Fatal("usage limit callback was not fired")
+	}
+
+	if !callbackData.ResetsAt.Equal(resetsAt) {
+		t.Errorf("callback ResetsAt = %v, want %v", callbackData.ResetsAt, resetsAt)
+	}
+	if callbackData.Message != "callback test" {
+		t.Errorf("callback Message = %q, want %q", callbackData.Message, "callback test")
+	}
+}
+
 func TestMetrics_SnapshotIsolation(t *testing.T) {
 	m := New()
 	ctx, cancel := context.WithCancel(context.Background())

@@ -80,6 +80,24 @@ func RunDaemon(sessionDir string, rc *config.RuntimeConfig, resume bool) error {
 		}
 	})
 
+	// Wire OnUsageLimit callback to persist rate limit info to the profile's
+	// ratelimit.json so other tools (e.g. rotate) can check it.
+	s.monitor.SetOnUsageLimit(func(data monitor.UsageLimitData) {
+		profileDir := rc.HarnessConfigDir()
+		if profileDir == "" {
+			return
+		}
+		info := &config.RateLimitInfo{
+			ResetsAt:   data.ResetsAt,
+			Message:    data.Message,
+			RecordedAt: time.Now(),
+			AgentName:  rc.AgentName,
+		}
+		if err := config.WriteRateLimit(profileDir, info); err != nil {
+			log.Printf("warning: write rate limit info: %v", err)
+		}
+	})
+
 	// Create socket directory.
 	if err := os.MkdirAll(socketdir.Dir(), 0o700); err != nil {
 		return fmt.Errorf("create socket dir: %w", err)
