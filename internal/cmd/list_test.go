@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"testing"
+	"time"
 
 	"h2/internal/config"
 	"h2/internal/session/message"
@@ -345,5 +346,43 @@ func TestOrderRoutes_CurrentNotInRoutes(t *testing.T) {
 	}
 	if ordered[1].route.Prefix != "project-a" {
 		t.Errorf("ordered[1] = %q, want project-a", ordered[1].route.Prefix)
+	}
+}
+
+func TestBuildListAgeFilter_UsesParseAge(t *testing.T) {
+	filter, err := buildListAgeFilter("3d", "12h")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if filter.minAge != 72*time.Hour {
+		t.Fatalf("minAge = %v, want %v", filter.minAge, 72*time.Hour)
+	}
+	if filter.maxAge != 12*time.Hour {
+		t.Fatalf("maxAge = %v, want %v", filter.maxAge, 12*time.Hour)
+	}
+}
+
+func TestFilterAgentInfos_ByUptime(t *testing.T) {
+	infos := []*message.AgentInfo{
+		{Name: "newer", Uptime: "30m"},
+		{Name: "older", Uptime: "2h"},
+	}
+	filter := listAgeFilter{minAge: time.Hour}
+	got := filterAgentInfos(infos, filter)
+	if len(got) != 1 || got[0].Name != "older" {
+		t.Fatalf("unexpected filtered agents: %#v", got)
+	}
+}
+
+func TestFilterBridgeInfos_PrefersLastActivity(t *testing.T) {
+	infos := []*message.BridgeInfo{
+		{Name: "active", LastActivity: "15m", Uptime: "48h"},
+		{Name: "idle", LastActivity: "3h", Uptime: "48h"},
+		{Name: "startup-only", Uptime: "2h"},
+	}
+	filter := listAgeFilter{maxAge: time.Hour}
+	got := filterBridgeInfos(infos, filter)
+	if len(got) != 1 || got[0].Name != "active" {
+		t.Fatalf("unexpected filtered bridges: %#v", got)
 	}
 }

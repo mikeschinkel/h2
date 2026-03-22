@@ -22,6 +22,8 @@ func newLsCmd() *cobra.Command {
 	var podFlag string
 	var allFlag bool
 	var includeStoppedFlag bool
+	var olderThan string
+	var newerThan string
 
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -31,8 +33,13 @@ func newLsCmd() *cobra.Command {
 				return fmt.Errorf("--all and --pod are mutually exclusive")
 			}
 
+			filter, err := buildListAgeFilter(olderThan, newerThan)
+			if err != nil {
+				return err
+			}
+
 			if allFlag {
-				return listAll()
+				return listAll(filter)
 			}
 
 			entries, err := socketdir.List()
@@ -66,6 +73,9 @@ func newLsCmd() *cobra.Command {
 				}
 			}
 
+			agentInfos = filterAgentInfos(agentInfos, filter)
+			bridgeInfos = filterBridgeInfos(bridgeInfos, filter)
+
 			if len(entries) == 0 && !includeStoppedFlag {
 				fmt.Println("No running agents.")
 				return nil
@@ -92,7 +102,7 @@ func newLsCmd() *cobra.Command {
 
 			// Show stopped agents from session directories.
 			if includeStoppedFlag {
-				printStoppedAgents(runningNames, podFilter)
+				printStoppedAgents(runningNames, podFilter, filter)
 			}
 
 			return nil
@@ -102,8 +112,94 @@ func newLsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&podFlag, "pod", "", "Filter by pod name, or '*' to show all grouped by pod")
 	cmd.Flags().BoolVar(&allFlag, "all", false, "List agents from all discovered h2 directories")
 	cmd.Flags().BoolVar(&includeStoppedFlag, "include-stopped", false, "Include stopped agents that can be resumed")
+	cmd.Flags().StringVar(&olderThan, "older-than", "", "Only show entries older than this age (e.g. 3d, 12h, 30m)")
+	cmd.Flags().StringVar(&newerThan, "newer-than", "", "Only show entries newer than this age (e.g. 3d, 12h, 30m)")
 
 	return cmd
+}
+
+type listAgeFilter struct {
+	minAge time.Duration
+	maxAge time.Duration
+}
+
+func buildListAgeFilter(olderThan, newerThan string) (listAgeFilter, error) {
+	var f listAgeFilter
+	if olderThan != "" {
+		d, err := parseAge(olderThan)
+		if err != nil {
+			return f, fmt.Errorf("invalid --older-than value %q: %w", olderThan, err)
+		}
+		f.minAge = d
+	}
+	if newerThan != "" {
+		d, err := parseAge(newerThan)
+		if err != nil {
+			return f, fmt.Errorf("invalid --newer-than value %q: %w", newerThan, err)
+		}
+		f.maxAge = d
+	}
+	return f, nil
+}
+
+func parseListItemAge(raw string) (time.Duration, bool) {
+	if raw == "" {
+		return 0, false
+	}
+	if d, err := time.ParseDuration(raw); err == nil {
+		return d, true
+	}
+	if d, err := parseAge(raw); err == nil {
+		return d, true
+	}
+	return 0, false
+}
+
+func (f listAgeFilter) matchesAge(age time.Duration, ok bool) bool {
+	if f.minAge == 0 && f.maxAge == 0 {
+		return true
+	}
+	if !ok {
+		return false
+	}
+	if f.minAge > 0 && age < f.minAge {
+		return false
+	}
+	if f.maxAge > 0 && age > f.maxAge {
+		return false
+	}
+	return true
+}
+
+func filterAgentInfos(infos []*message.AgentInfo, filter listAgeFilter) []*message.AgentInfo {
+	if filter.minAge == 0 && filter.maxAge == 0 {
+		return infos
+	}
+	var out []*message.AgentInfo
+	for _, info := range infos {
+		age, ok := parseListItemAge(info.Uptime)
+		if filter.matchesAge(age, ok) {
+			out = append(out, info)
+		}
+	}
+	return out
+}
+
+func filterBridgeInfos(infos []*message.BridgeInfo, filter listAgeFilter) []*message.BridgeInfo {
+	if filter.minAge == 0 && filter.maxAge == 0 {
+		return infos
+	}
+	var out []*message.BridgeInfo
+	for _, info := range infos {
+		age, ok := parseListItemAge(info.LastActivity)
+		if !ok {
+			age, ok = parseListItemAge(info.Uptime)
+		}
+		if filter.matchesAge(age, ok) {
+			out = append(out, info)
+		}
+	}
+	return out
 }
 
 // podGroup represents a group of agents and bridges with the same pod name.
@@ -382,7 +478,7 @@ func printAgentLine(info *message.AgentInfo) {
 }
 
 // printStoppedAgents lists agents that have session dirs but no active socket.
-func printStoppedAgents(runningNames map[string]bool, podFilter string) {
+func printStoppedAgents(runningNames map[string]bool, podFilter string, filter listAgeFilter) {
 	configs := config.ListSessionConfigs()
 	if len(configs) == 0 {
 		return
@@ -396,6 +492,10 @@ func printStoppedAgents(runningNames map[string]bool, podFilter string) {
 		}
 		// Apply pod filter.
 		if podFilter != "" && podFilter != "*" && rc.Pod != podFilter {
+			continue
+		}
+		la := config.SessionLastActivity(config.SessionDir(rc.AgentName))
+		if !filter.matchesAge(time.Since(la), !la.IsZero()) {
 			continue
 		}
 		stopped = append(stopped, rc)
@@ -481,7 +581,7 @@ func newLsAlias(listCmd *cobra.Command) *cobra.Command {
 }
 
 // listAll reads the routes registry and lists agents from each registered h2 directory.
-func listAll() error {
+func listAll(filter listAgeFilter) error {
 	rootDir, err := config.RootDir()
 	if err != nil {
 		return fmt.Errorf("resolve root h2 dir: %w", err)
@@ -499,7 +599,7 @@ func listAll() error {
 		// Graceful fallback: list just the current dir if it exists.
 		if currentDir != "" {
 			fmt.Printf("%s %s\n", s.Bold(shortenHome(currentDir)), s.Dim("(current)"))
-			listDirAgents(currentDir, "")
+			listDirAgents(currentDir, "", filter)
 		} else {
 			fmt.Println("No h2 directories registered.")
 		}
@@ -529,7 +629,7 @@ func listAll() error {
 			agentPrefix = entry.route.Prefix + "/"
 		}
 
-		listDirAgents(entry.route.Path, agentPrefix)
+		listDirAgents(entry.route.Path, agentPrefix, filter)
 	}
 
 	return nil
@@ -584,7 +684,7 @@ func orderRoutes(routes []config.Route, currentDir, rootDir string) []orderedRou
 
 // listDirAgents lists agents and bridges for a single h2 directory.
 // If agentPrefix is non-empty, it's prepended to agent names (e.g. "root/").
-func listDirAgents(h2Dir string, agentPrefix string) {
+func listDirAgents(h2Dir string, agentPrefix string, filter listAgeFilter) {
 	sockDir := socketdir.ResolveSocketDir(h2Dir)
 	entries, err := socketdir.ListIn(sockDir)
 	if err != nil {
@@ -623,6 +723,9 @@ func listDirAgents(h2Dir string, agentPrefix string) {
 			}
 		}
 	}
+
+	agentInfos = filterAgentInfos(agentInfos, filter)
+	bridgeInfos = filterBridgeInfos(bridgeInfos, filter)
 
 	groups := groupByPod(agentInfos, bridgeInfos, "*")
 	if len(groups) > 0 || len(unresponsive) > 0 {
