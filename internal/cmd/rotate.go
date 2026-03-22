@@ -64,9 +64,8 @@ argument order.`,
 				return fmt.Errorf("agent %q has no harness config path prefix; cannot rotate profile", agentName)
 			}
 
-			// Resolve candidate profiles.
-			h2Dir := config.ConfigDir()
-			candidates, err := resolveRotateCandidates(profileArgs, h2Dir)
+			// Resolve candidate profiles from the harness-specific config dir.
+			candidates, err := resolveRotateCandidates(profileArgs, rc.HarnessConfigPathPrefix)
 			if err != nil {
 				return err
 			}
@@ -142,13 +141,15 @@ argument order.`,
 }
 
 // resolveRotateCandidates builds the ordered list of candidate profiles from
-// the user-provided args. If no args are given, all discovered profiles are
-// returned (sorted). Glob patterns (containing * or ?) are expanded against
-// discovered profiles and sorted; literal names preserve argument order.
-func resolveRotateCandidates(args []string, h2Dir string) ([]string, error) {
-	allProfiles, err := discoverProfiles(h2Dir)
+// the user-provided args. configPrefix is the harness-specific config directory
+// (e.g. <h2dir>/claude-config) whose subdirectories are the available profiles.
+// If no args are given, all profiles are returned (sorted). Glob patterns
+// (containing * or ?) are expanded against available profiles and sorted;
+// literal names preserve argument order.
+func resolveRotateCandidates(args []string, configPrefix string) ([]string, error) {
+	allProfiles, err := listProfilesInDir(configPrefix)
 	if err != nil {
-		return nil, fmt.Errorf("discover profiles: %w", err)
+		return nil, fmt.Errorf("list profiles in %s: %w", configPrefix, err)
 	}
 
 	if len(args) == 0 {
@@ -183,6 +184,23 @@ func resolveRotateCandidates(args []string, h2Dir string) ([]string, error) {
 	}
 
 	return candidates, nil
+}
+
+// listProfilesInDir returns sorted subdirectory names under dir.
+// Only immediate subdirectories are returned; files are ignored.
+func listProfilesInDir(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var profiles []string
+	for _, e := range entries {
+		if e.IsDir() {
+			profiles = append(profiles, e.Name())
+		}
+	}
+	sort.Strings(profiles)
+	return profiles, nil
 }
 
 // isGlobPattern returns true if s contains glob metacharacters.

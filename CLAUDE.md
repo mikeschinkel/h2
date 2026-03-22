@@ -1,3 +1,10 @@
+## Testing Rules
+
+**Never use `config.ConfigDir()` in tests.** Tests must not touch the real h2 config
+directory. Use `setupFakeHome(t)` or a similar pattern that sets `H2_DIR` to a temp
+directory and calls `config.ResetResolveCache()`. This prevents test side effects on
+the real `~/.h2` directory and ensures test isolation.
+
 ## Release Process
 
 ## Commit Quality Gate

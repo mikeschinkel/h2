@@ -483,10 +483,10 @@ func TestSelectNextProfile(t *testing.T) {
 }
 
 func TestResolveRotateCandidates(t *testing.T) {
-	// Create a temp h2Dir with some profile directories.
-	h2Dir := t.TempDir()
+	// Create a temp dir simulating a harness config prefix with profile subdirs.
+	configPrefix := t.TempDir()
 	for _, name := range []string{"default", "staging-1", "staging-2", "staging-3", "prod"} {
-		os.MkdirAll(filepath.Join(h2Dir, "profiles-shared", name), 0o755)
+		os.MkdirAll(filepath.Join(configPrefix, name), 0o755)
 	}
 
 	tests := []struct {
@@ -538,7 +538,7 @@ func TestResolveRotateCandidates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := resolveRotateCandidates(tt.args, h2Dir)
+			got, err := resolveRotateCandidates(tt.args, configPrefix)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -588,19 +588,14 @@ func TestRotate_AutoSelectWithCandidates(t *testing.T) {
 }
 
 func TestRotate_GlobPattern(t *testing.T) {
-	h2Dir := setupRotateTestH2Dir(t)
+	setupRotateTestH2Dir(t)
 	name := "rotate-test-glob"
 	tmpDir := t.TempDir()
 
-	// Create profile dirs for harness validation.
+	// Create profile dirs under the harness config prefix.
 	os.MkdirAll(filepath.Join(tmpDir, "staging-1"), 0o755)
 	os.MkdirAll(filepath.Join(tmpDir, "staging-2"), 0o755)
 	os.MkdirAll(filepath.Join(tmpDir, "staging-3"), 0o755)
-
-	// Create profiles-shared dirs so discoverProfiles finds them.
-	for _, p := range []string{"staging-1", "staging-2", "staging-3"} {
-		os.MkdirAll(filepath.Join(h2Dir, "profiles-shared", p), 0o755)
-	}
 
 	sessionDir := writeTestRuntimeConfig(t, name, &config.RuntimeConfig{
 		AgentName:               name,
