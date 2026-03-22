@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -657,16 +658,26 @@ func TestEventHandler_APIRequest_UsageLimitReached(t *testing.T) {
 	})
 	p.OnLogs(body)
 
-	got := drainEvents(events, 1)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(got))
+	got := drainEvents(events, 2)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(got))
 	}
 	if got[0].Type != monitor.EventStateChange {
-		t.Fatalf("Type = %v, want EventStateChange", got[0].Type)
+		t.Fatalf("event[0].Type = %v, want EventStateChange", got[0].Type)
 	}
 	state := got[0].Data.(monitor.StateChangeData)
 	if state.State != monitor.StateIdle || state.SubState != monitor.SubStateUsageLimit {
 		t.Errorf("state = (%v,%v), want (Idle,UsageLimit)", state.State, state.SubState)
+	}
+	if got[1].Type != monitor.EventUsageLimitInfo {
+		t.Fatalf("event[1].Type = %v, want EventUsageLimitInfo", got[1].Type)
+	}
+	ulData := got[1].Data.(monitor.UsageLimitData)
+	if ulData.ResetsAt.IsZero() {
+		t.Error("ResetsAt should not be zero — resets_in_seconds was 112523")
+	}
+	if !strings.Contains(ulData.Message, "usage_limit_reached") {
+		t.Errorf("Message = %q, want containing 'usage_limit_reached'", ulData.Message)
 	}
 }
 
@@ -681,13 +692,18 @@ func TestEventHandler_APIRequest_UsageLimitReached_IntStatusCode(t *testing.T) {
 	})
 	p.OnLogs(body)
 
-	got := drainEvents(events, 1)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(got))
+	got := drainEvents(events, 2)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(got))
 	}
 	state := got[0].Data.(monitor.StateChangeData)
 	if state.State != monitor.StateIdle || state.SubState != monitor.SubStateUsageLimit {
 		t.Errorf("state = (%v,%v), want (Idle,UsageLimit)", state.State, state.SubState)
+	}
+	// No resets_in_seconds in this error, so ResetsAt should be zero.
+	ulData := got[1].Data.(monitor.UsageLimitData)
+	if !ulData.ResetsAt.IsZero() {
+		t.Errorf("ResetsAt should be zero when resets_in_seconds missing, got %v", ulData.ResetsAt)
 	}
 }
 
@@ -718,14 +734,14 @@ func TestEventHandler_APIRequest_UsageLimit_RecoveredByResponseCreated(t *testin
 	p.OnLogs(makeLogsPayload("codex.user_prompt", nil))
 	_ = drainEvents(events, 2)
 
-	// Hit usage limit.
+	// Hit usage limit (emits StateChange + UsageLimitInfo).
 	p.OnLogs(makeLogsPayload("codex.api_request", []otelAttribute{
 		{Key: "http.response.status_code", Value: otelAttrValue{StringValue: "429"}},
 		{Key: "error.message", Value: otelAttrValue{StringValue: `usage_limit_reached`}},
 	}))
-	got := drainEvents(events, 1)
-	if len(got) != 1 {
-		t.Fatalf("expected usage limit state change, got %d events", len(got))
+	got := drainEvents(events, 2)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 events (state change + usage limit info), got %d", len(got))
 	}
 	state := got[0].Data.(monitor.StateChangeData)
 	if state.State != monitor.StateIdle || state.SubState != monitor.SubStateUsageLimit {
@@ -758,7 +774,7 @@ func TestEventHandler_UserPrompt_DuringUsageLimit_NoStateChange(t *testing.T) {
 		{Key: "http.response.status_code", Value: otelAttrValue{StringValue: "429"}},
 		{Key: "error.message", Value: otelAttrValue{StringValue: `usage_limit_reached`}},
 	}))
-	got := drainEvents(events, 1)
+	got := drainEvents(events, 2) // StateChange + UsageLimitInfo
 	state := got[0].Data.(monitor.StateChangeData)
 	if state.SubState != monitor.SubStateUsageLimit {
 		t.Fatalf("expected UsageLimit, got %v", state.SubState)

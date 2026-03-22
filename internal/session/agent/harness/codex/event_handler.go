@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -291,7 +292,13 @@ func (p *EventHandler) processEvent(name string, attrs []otelAttribute, ts time.
 		if statusCode == "429" && strings.Contains(errMsg, "usage_limit_reached") {
 			p.cancelPendingIdle()
 			p.emitStateChange(ts, monitor.StateIdle, monitor.SubStateUsageLimit)
-			return spanProcessResult{recognized: true, emitted: 1}
+			resetsAt := parseCodexResetsAt(errMsg, ts)
+			p.emit(monitor.AgentEvent{
+				Type:      monitor.EventUsageLimitInfo,
+				Timestamp: ts,
+				Data:      monitor.UsageLimitData{ResetsAt: resetsAt, Message: errMsg},
+			})
+			return spanProcessResult{recognized: true, emitted: 2}
 		}
 		return spanProcessResult{recognized: true}
 
@@ -544,6 +551,26 @@ type otelAttribute struct {
 type otelAttrValue struct {
 	StringValue string          `json:"stringValue,omitempty"`
 	IntValue    json.RawMessage `json:"intValue,omitempty"`
+}
+
+// reResetsInSeconds extracts the "resets_in_seconds" value from a Codex
+// usage limit error message. The error body is JSON embedded in the HTTP
+// error text with escaped quotes, e.g.:
+// http 429 Too Many Requests: Some("{\"error\":{...\"resets_in_seconds\":112523}}")
+var reResetsInSeconds = regexp.MustCompile(`\\?"resets_in_seconds\\?"\s*:\s*(\d+)`)
+
+// parseCodexResetsAt extracts the reset time from a Codex usage limit error
+// message. Falls back to zero time if the field is not found.
+func parseCodexResetsAt(errMsg string, now time.Time) time.Time {
+	m := reResetsInSeconds.FindStringSubmatch(errMsg)
+	if m == nil {
+		return time.Time{}
+	}
+	secs, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil {
+		return time.Time{}
+	}
+	return now.Add(time.Duration(secs) * time.Second)
 }
 
 // --- Attribute extraction helpers ---
