@@ -11,7 +11,29 @@ import (
 	"h2/internal/session"
 )
 
+// setupRotateTestH2Dir creates an isolated fake h2 directory so rotate tests
+// never touch the real config dir. Returns the h2 dir path.
+func setupRotateTestH2Dir(t *testing.T) string {
+	t.Helper()
+	config.ResetResolveCache()
+	t.Cleanup(config.ResetResolveCache)
+
+	h2Dir := filepath.Join(t.TempDir(), "h2")
+	for _, sub := range []string{"sessions", "sockets"} {
+		if err := os.MkdirAll(filepath.Join(h2Dir, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := config.WriteMarker(h2Dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("H2_DIR", h2Dir)
+	return h2Dir
+}
+
 func TestRotate_NoSession(t *testing.T) {
+	setupRotateTestH2Dir(t)
+
 	cmd := newRotateCmd()
 	cmd.SetArgs([]string{"nonexistent-rotate-agent", "staging"})
 	err := cmd.Execute()
@@ -24,6 +46,7 @@ func TestRotate_NoSession(t *testing.T) {
 }
 
 func TestRotate_AlreadyOnProfile(t *testing.T) {
+	setupRotateTestH2Dir(t)
 	name := "rotate-test-same-profile"
 	tmpDir := t.TempDir()
 
@@ -51,6 +74,7 @@ func TestRotate_AlreadyOnProfile(t *testing.T) {
 }
 
 func TestRotate_ProfileNotFound(t *testing.T) {
+	setupRotateTestH2Dir(t)
 	name := "rotate-test-no-profile"
 	tmpDir := t.TempDir()
 	// Create the current profile dir but not the target.
@@ -80,6 +104,7 @@ func TestRotate_ProfileNotFound(t *testing.T) {
 }
 
 func TestRotate_Success(t *testing.T) {
+	setupRotateTestH2Dir(t)
 	name := "rotate-test-success"
 	tmpDir := t.TempDir()
 	cwd := "/Users/testuser/projects/myapp"
@@ -136,6 +161,7 @@ func TestRotate_Success(t *testing.T) {
 }
 
 func TestRotate_GenericHarness_NoLogMove(t *testing.T) {
+	setupRotateTestH2Dir(t)
 	name := "rotate-test-generic"
 	tmpDir := t.TempDir()
 
@@ -171,6 +197,7 @@ func TestRotate_GenericHarness_NoLogMove(t *testing.T) {
 }
 
 func TestRotate_StoppedAgent_NoResume(t *testing.T) {
+	setupRotateTestH2Dir(t)
 	name := "rotate-test-stopped"
 	tmpDir := t.TempDir()
 
@@ -219,6 +246,7 @@ func TestRotate_StoppedAgent_NoResume(t *testing.T) {
 }
 
 func TestRotate_EmptyProfileDefaultsToDefault(t *testing.T) {
+	setupRotateTestH2Dir(t)
 	name := "rotate-test-empty-profile"
 	tmpDir := t.TempDir()
 
@@ -268,6 +296,7 @@ func TestRotate_EmptyProfileDefaultsToDefault(t *testing.T) {
 }
 
 func TestRotate_SessionLogContentPreserved(t *testing.T) {
+	setupRotateTestH2Dir(t)
 	name := "rotate-test-content"
 	tmpDir := t.TempDir()
 	cwd := "/Users/testuser/myproject"
@@ -315,6 +344,7 @@ func TestRotate_SessionLogContentPreserved(t *testing.T) {
 }
 
 func TestRotate_NoExistingLog_SucceedsWithoutMove(t *testing.T) {
+	setupRotateTestH2Dir(t)
 	name := "rotate-test-no-log"
 	tmpDir := t.TempDir()
 
@@ -361,6 +391,7 @@ func TestRotate_WrongArgCount(t *testing.T) {
 }
 
 func TestRotate_NoHarnessConfigPrefix(t *testing.T) {
+	setupRotateTestH2Dir(t)
 	name := "rotate-test-no-prefix"
 
 	writeTestRuntimeConfig(t, name, &config.RuntimeConfig{
@@ -519,6 +550,7 @@ func TestResolveRotateCandidates(t *testing.T) {
 }
 
 func TestRotate_AutoSelectWithCandidates(t *testing.T) {
+	setupRotateTestH2Dir(t)
 	name := "rotate-test-autoselect"
 	tmpDir := t.TempDir()
 
@@ -556,20 +588,18 @@ func TestRotate_AutoSelectWithCandidates(t *testing.T) {
 }
 
 func TestRotate_GlobPattern(t *testing.T) {
+	h2Dir := setupRotateTestH2Dir(t)
 	name := "rotate-test-glob"
 	tmpDir := t.TempDir()
 
-	// Create profile dirs.
+	// Create profile dirs for harness validation.
 	os.MkdirAll(filepath.Join(tmpDir, "staging-1"), 0o755)
 	os.MkdirAll(filepath.Join(tmpDir, "staging-2"), 0o755)
 	os.MkdirAll(filepath.Join(tmpDir, "staging-3"), 0o755)
 
-	// Create profiles-shared dirs so discoverProfiles finds them, and clean up after.
-	h2Dir := config.ConfigDir()
+	// Create profiles-shared dirs so discoverProfiles finds them.
 	for _, p := range []string{"staging-1", "staging-2", "staging-3"} {
-		dir := filepath.Join(h2Dir, "profiles-shared", p)
-		os.MkdirAll(dir, 0o755)
-		defer os.Remove(dir)
+		os.MkdirAll(filepath.Join(h2Dir, "profiles-shared", p), 0o755)
 	}
 
 	sessionDir := writeTestRuntimeConfig(t, name, &config.RuntimeConfig{
@@ -602,6 +632,7 @@ func TestRotate_GlobPattern(t *testing.T) {
 }
 
 func TestRotate_VariadicCandidates(t *testing.T) {
+	setupRotateTestH2Dir(t)
 	name := "rotate-test-variadic"
 	tmpDir := t.TempDir()
 
