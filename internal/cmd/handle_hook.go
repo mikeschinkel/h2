@@ -272,26 +272,19 @@ func handleDCGPreToolUse(cmd *cobra.Command, agentName, roleName string, dcgCfg 
 		return nil
 	}
 
-	// DCG only evaluates shell commands (Bash tool).
-	if input.ToolName != "Bash" {
-		fmt.Fprintln(cmd.OutOrStdout(), "{}")
-		return nil
-	}
-
-	// Extract the command string from tool_input.
-	var toolInput struct {
-		Command string `json:"command"`
-	}
-	if err := json.Unmarshal(input.ToolInput, &toolInput); err != nil || toolInput.Command == "" {
-		fmt.Fprintln(cmd.OutOrStdout(), "{}")
-		return nil
+	// Decode tool_input to map for EvaluateToolUse.
+	var toolInputMap map[string]any
+	if len(input.ToolInput) > 0 {
+		if err := json.Unmarshal(input.ToolInput, &toolInputMap); err != nil {
+			toolInputMap = nil
+		}
 	}
 
 	// Build guard options from DCGConfig.
 	opts := buildDCGOptions(dcgCfg)
 
-	// Evaluate the command.
-	result := guard.Evaluate(toolInput.Command, opts...)
+	// Evaluate the tool use (all tools, not just Bash).
+	result := guard.EvaluateToolUse(input.ToolName, toolInputMap, opts...)
 	reason := result.Reason()
 
 	var decisionStr string

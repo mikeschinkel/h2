@@ -640,7 +640,7 @@ func TestSplitLines(t *testing.T) {
 
 // --- DCG PreToolUse tests ---
 
-func TestHandleDCGPreToolUse_NonBashTool_PassThrough(t *testing.T) {
+func TestHandleDCGPreToolUse_NonBashTool_Evaluated(t *testing.T) {
 	payload := `{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/tmp/foo"}}`
 	cfg := &config.DCGConfig{}
 
@@ -648,12 +648,13 @@ func TestHandleDCGPreToolUse_NonBashTool_PassThrough(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := handleDCGPreToolUse(cmd, "test-agent", "test-role", cfg,[]byte(payload))
+	err := handleDCGPreToolUse(cmd, "test-agent", "test-role", cfg, []byte(payload))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if strings.TrimSpace(out.String()) != "{}" {
-		t.Errorf("expected {} for non-Bash tool, got %q", out.String())
+	result := strings.TrimSpace(out.String())
+	if !strings.Contains(result, `"permissionDecision":"allow"`) {
+		t.Errorf("expected explicit allow for safe Read tool, got %q", result)
 	}
 }
 
@@ -750,7 +751,7 @@ func TestHandleDCGPreToolUse_AllowAllPolicy_Allows(t *testing.T) {
 	}
 }
 
-func TestHandleDCGPreToolUse_EmptyCommand_PassThrough(t *testing.T) {
+func TestHandleDCGPreToolUse_EmptyCommand_Allow(t *testing.T) {
 	payload := `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":""}}`
 	cfg := &config.DCGConfig{}
 
@@ -758,12 +759,13 @@ func TestHandleDCGPreToolUse_EmptyCommand_PassThrough(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := handleDCGPreToolUse(cmd, "test-agent", "test-role", cfg,[]byte(payload))
+	err := handleDCGPreToolUse(cmd, "test-agent", "test-role", cfg, []byte(payload))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if strings.TrimSpace(out.String()) != "{}" {
-		t.Errorf("expected {} for empty command, got %q", out.String())
+	result := strings.TrimSpace(out.String())
+	if !strings.Contains(result, `"permissionDecision":"allow"`) {
+		t.Errorf("expected explicit allow for empty command, got %q", result)
 	}
 }
 
