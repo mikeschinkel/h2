@@ -2,7 +2,8 @@ package automation
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
+	"os"
 	"sync"
 
 	"h2/internal/session/agent/monitor"
@@ -16,22 +17,16 @@ type TriggerEngine struct {
 	mu            sync.Mutex
 	triggers      map[string]*Trigger
 	runner        *ActionRunner
-	logger        *slog.Logger
 	clock         Clock
 	stateProvider StateProvider
 }
 
 // NewTriggerEngine creates a TriggerEngine that dispatches actions via the given runner.
 // The optional stateProvider injects H2_AGENT_STATE/H2_AGENT_SUBSTATE into the env.
-// Pass a Clock to override time source (nil defaults to realClock/time.Now).
-func NewTriggerEngine(runner *ActionRunner, logger *slog.Logger, stateProvider ...StateProvider) *TriggerEngine {
-	if logger == nil {
-		logger = slog.Default()
-	}
+func NewTriggerEngine(runner *ActionRunner, stateProvider ...StateProvider) *TriggerEngine {
 	te := &TriggerEngine{
 		triggers: make(map[string]*Trigger),
 		runner:   runner,
-		logger:   logger,
 		clock:    realClock{},
 	}
 	if len(stateProvider) > 0 {
@@ -107,7 +102,6 @@ func (te *TriggerEngine) processEvent(ctx context.Context, evt monitor.AgentEven
 		// Reap expired triggers opportunistically.
 		if !t.ExpiresAt.IsZero() && now.After(t.ExpiresAt) {
 			delete(te.triggers, id)
-			te.logger.Info("trigger expired (reap)", "trigger_id", id)
 			continue
 		}
 		if t.MatchesEvent(evt) {
@@ -143,7 +137,6 @@ func (te *TriggerEngine) evalAndFire(ctx context.Context, t *Trigger, evt monito
 	if !t.ExpiresAt.IsZero() && now.After(t.ExpiresAt) {
 		delete(te.triggers, t.ID)
 		te.mu.Unlock()
-		te.logger.Info("trigger expired", "trigger_id", t.ID)
 		return
 	}
 
@@ -151,8 +144,6 @@ func (te *TriggerEngine) evalAndFire(ctx context.Context, t *Trigger, evt monito
 	if t.Cooldown > 0 && !t.LastFiredAt.IsZero() {
 		if now.Sub(t.LastFiredAt) < t.Cooldown {
 			te.mu.Unlock()
-			te.logger.Debug("trigger in cooldown", "trigger_id", t.ID,
-				"remaining", t.Cooldown-now.Sub(t.LastFiredAt))
 			return
 		}
 	}
@@ -165,8 +156,6 @@ func (te *TriggerEngine) evalAndFire(ctx context.Context, t *Trigger, evt monito
 	defer cancel()
 	condEnv := te.runner.MergeEnv(env)
 	if !EvalCondition(condCtx, t.Condition, condEnv) {
-		te.logger.Debug("trigger condition failed, keeping",
-			"trigger_id", t.ID, "trigger_name", t.Name)
 		return
 	}
 
@@ -190,18 +179,12 @@ func (te *TriggerEngine) evalAndFire(ctx context.Context, t *Trigger, evt monito
 	}
 	te.mu.Unlock()
 
-	te.logger.Info("trigger fired",
-		"trigger_id", t.ID, "trigger_name", t.Name,
-		"fire_count", t.FireCount, "exhausted", exhausted,
-		"event", evt.Type.String())
-
 	// Build header with current fire count for message delivery.
 	action := t.Action
 	action.Header = t.TriggerHeader(evt.Type.String())
 
 	if err := te.runner.Run(action, env); err != nil {
-		te.logger.Warn("trigger action failed",
-			"trigger_id", t.ID, "error", err)
+		fmt.Fprintf(os.Stderr, "automation: trigger action failed id=%s error=%v\n", t.ID, err)
 	}
 }
 

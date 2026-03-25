@@ -3,8 +3,6 @@ package automation
 import (
 	"context"
 	"fmt"
-	"io"
-	"log/slog"
 	"math/rand"
 	"sync"
 	"testing"
@@ -13,11 +11,6 @@ import (
 	"h2/internal/session/agent/monitor"
 	"h2/internal/session/message"
 )
-
-// discardLogger returns a logger that discards all output, for benchmarks.
-func discardLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
-}
 
 // directProcessEvent calls processEvent directly for fast testing (no goroutine/sleep).
 func directProcessEvent(te *TriggerEngine, evt monitor.AgentEvent) {
@@ -238,9 +231,9 @@ func (f *failingEnqueuer) getMessages() []enqueuedMsg {
 // prevent subsequent firings and that FireCount still increments.
 func TestFault_ActionFailureOnRepeatingTrigger(t *testing.T) {
 	failEnq := &failingEnqueuer{failOnN: 2} // fail on 2nd firing
-	runner := NewActionRunner(failEnq, nil, nil)
+	runner := NewActionRunner(failEnq, nil)
 	clock := newMockClock(time.Now())
-	te := NewTriggerEngine(runner, nil)
+	te := NewTriggerEngine(runner)
 	te.SetClock(clock)
 
 	te.Add(&Trigger{
@@ -487,8 +480,8 @@ func BenchmarkProcessEvent_1000Triggers(b *testing.B) {
 func benchmarkProcessEventN(b *testing.B, n int) {
 	clock := newMockClock(time.Now())
 	enq := &mockEnqueuer{}
-	runner := NewActionRunner(enq, nil, nil)
-	te := NewTriggerEngine(runner, discardLogger())
+	runner := NewActionRunner(enq, nil)
+	te := NewTriggerEngine(runner)
 	te.SetClock(clock)
 
 	// Mix of repeating and one-shot triggers. Only a few match the event.
@@ -528,8 +521,8 @@ func BenchmarkCooldownCheckOverhead(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			clock := newMockClock(time.Now())
 			enq := &mockEnqueuer{}
-			runner := NewActionRunner(enq, nil, nil)
-			te := NewTriggerEngine(runner, discardLogger())
+			runner := NewActionRunner(enq, nil)
+			te := NewTriggerEngine(runner)
 			te.SetClock(clock)
 			te.Add(&Trigger{
 				ID:         "os",
@@ -545,8 +538,8 @@ func BenchmarkCooldownCheckOverhead(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			clock := newMockClock(time.Now())
 			enq := &mockEnqueuer{}
-			runner := NewActionRunner(enq, nil, nil)
-			te := NewTriggerEngine(runner, discardLogger())
+			runner := NewActionRunner(enq, nil)
+			te := NewTriggerEngine(runner)
 			te.SetClock(clock)
 			te.Add(&Trigger{
 				ID:         "cd",
@@ -566,8 +559,8 @@ func BenchmarkExpiryReaping(b *testing.B) {
 	baseTime := time.Now()
 	clock := newMockClock(baseTime.Add(2 * time.Hour)) // well past expiry
 	enq := &mockEnqueuer{}
-	runner := NewActionRunner(enq, nil, nil)
-	te := NewTriggerEngine(runner, discardLogger())
+	runner := NewActionRunner(enq, nil)
+	te := NewTriggerEngine(runner)
 	te.SetClock(clock)
 
 	// 100 expired triggers.

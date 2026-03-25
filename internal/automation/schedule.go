@@ -3,7 +3,7 @@ package automation
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -20,7 +20,6 @@ type ScheduleEngine struct {
 	mu            sync.Mutex
 	schedules     map[string]*activeSchedule
 	runner        *ActionRunner
-	logger        *slog.Logger
 	stateProvider StateProvider
 	clock         Clock
 }
@@ -47,14 +46,10 @@ func WithStateProvider(sp StateProvider) ScheduleEngineOption {
 }
 
 // NewScheduleEngine creates a ScheduleEngine that dispatches actions via the given runner.
-func NewScheduleEngine(runner *ActionRunner, logger *slog.Logger, opts ...ScheduleEngineOption) *ScheduleEngine {
-	if logger == nil {
-		logger = slog.Default()
-	}
+func NewScheduleEngine(runner *ActionRunner, opts ...ScheduleEngineOption) *ScheduleEngine {
 	se := &ScheduleEngine{
 		schedules: make(map[string]*activeSchedule),
 		runner:    runner,
-		logger:    logger,
 		clock:     realClock{},
 	}
 	for _, opt := range opts {
@@ -170,20 +165,16 @@ func (se *ScheduleEngine) handleFiring(as *activeSchedule) {
 	shouldRun, shouldRemove := evalConditionMode(s.ConditionMode, condPass, s.Condition == "")
 
 	if shouldRun {
-		se.logger.Info("schedule fired",
-			"schedule_id", s.ID, "schedule_name", s.Name,
-			"condition_mode", s.ConditionMode.String())
+		fmt.Fprintf(os.Stderr, "automation: schedule fired id=%s name=%s condition_mode=%s\n",
+			s.ID, s.Name, s.ConditionMode.String())
 		action := s.Action
 		action.Header = s.ScheduleHeader()
 		if err := se.runner.Run(action, env); err != nil {
-			se.logger.Warn("schedule action failed",
-				"schedule_id", s.ID, "error", err)
+			fmt.Fprintf(os.Stderr, "automation: schedule action failed id=%s error=%v\n", s.ID, err)
 		}
 	}
 
 	if shouldRemove {
-		se.logger.Info("schedule removed",
-			"schedule_id", s.ID, "reason", "condition mode completed")
 		se.mu.Lock()
 		delete(se.schedules, s.ID)
 		se.mu.Unlock()
@@ -194,8 +185,7 @@ func (se *ScheduleEngine) handleFiring(as *activeSchedule) {
 	now := se.clock.Now()
 	next := as.rule.After(now, false)
 	if next.IsZero() {
-		se.logger.Info("schedule exhausted (RRULE complete)",
-			"schedule_id", s.ID)
+		fmt.Fprintf(os.Stderr, "automation: schedule exhausted (RRULE complete) id=%s\n", s.ID)
 		se.mu.Lock()
 		delete(se.schedules, s.ID)
 		se.mu.Unlock()

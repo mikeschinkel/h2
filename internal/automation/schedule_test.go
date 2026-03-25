@@ -134,13 +134,40 @@ func (ft *fakeTimer) Reset(d time.Duration) bool {
 
 // --- Test helpers ---
 
+// waitForMessages polls enq until at least n messages have been enqueued
+// or the timeout expires. This is needed because handleFiring runs in a
+// goroutine and EvalCondition spawns a real subprocess, so there's a delay
+// between the fake timer firing and the message being enqueued.
+func waitForMessages(enq *mockEnqueuer, n int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if len(enq.getMessages()) >= n {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return len(enq.getMessages()) >= n
+}
+
+// waitForScheduleRemoved polls se until the schedule list is empty or timeout.
+func waitForScheduleRemoved(se *ScheduleEngine, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if len(se.List()) == 0 {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return len(se.List()) == 0
+}
+
 var baseTime = time.Date(2026, 3, 20, 12, 0, 0, 0, time.UTC)
 
 func newFakeScheduleEngine() (*ScheduleEngine, *mockEnqueuer, *fakeClock) {
 	enq := &mockEnqueuer{}
-	runner := NewActionRunner(enq, nil, nil)
+	runner := NewActionRunner(enq, nil)
 	clk := newFakeClock(baseTime)
-	se := NewScheduleEngine(runner, nil, WithClock(clk))
+	se := NewScheduleEngine(runner, WithClock(clk))
 	return se, enq, clk
 }
 
@@ -202,9 +229,8 @@ func TestScheduleEngine_RunIf_ConditionPass(t *testing.T) {
 
 	clk.Advance(1 * time.Second)
 
-	msgs := enq.getMessages()
-	if len(msgs) < 1 {
-		t.Fatal("expected at least 1 message with passing condition")
+	if !waitForMessages(enq, 1, 2*time.Second) {
+		t.Fatalf("expected at least 1 message with passing condition, got %d", len(enq.getMessages()))
 	}
 }
 
@@ -264,9 +290,8 @@ func TestScheduleEngine_StopWhen_ConditionFail(t *testing.T) {
 	clk.Advance(1 * time.Second)
 	clk.Advance(1 * time.Second)
 
-	msgs := enq.getMessages()
-	if len(msgs) < 1 {
-		t.Fatal("StopWhen with failing condition should run the action")
+	if !waitForMessages(enq, 1, 2*time.Second) {
+		t.Fatalf("StopWhen with failing condition should run the action, got %d messages", len(enq.getMessages()))
 	}
 }
 
@@ -294,12 +319,13 @@ func TestScheduleEngine_StopWhen_ConditionPass(t *testing.T) {
 	clk.Advance(1 * time.Second)
 
 	// Condition passes immediately → schedule removed, no action.
+	// Wait for handleFiring to finish (condition eval spawns a subprocess).
+	if !waitForScheduleRemoved(se, 2*time.Second) {
+		t.Fatal("schedule should be removed when StopWhen condition passes")
+	}
 	msgs := enq.getMessages()
 	if len(msgs) != 0 {
 		t.Fatalf("StopWhen with passing condition should not run action, got %d messages", len(msgs))
-	}
-	if len(se.List()) != 0 {
-		t.Fatal("schedule should be removed when StopWhen condition passes")
 	}
 }
 
@@ -329,7 +355,10 @@ func TestScheduleEngine_RunOnceWhen_EventuallyFires(t *testing.T) {
 
 	// First two ticks: condition fails (file doesn't exist).
 	clk.Advance(1 * time.Second)
+	// Wait for condition eval to complete before checking.
+	time.Sleep(100 * time.Millisecond)
 	clk.Advance(1 * time.Second)
+	time.Sleep(100 * time.Millisecond)
 	if len(enq.getMessages()) != 0 {
 		t.Fatal("should not fire before condition passes")
 	}
@@ -342,14 +371,14 @@ func TestScheduleEngine_RunOnceWhen_EventuallyFires(t *testing.T) {
 	// Next tick: condition passes.
 	clk.Advance(1 * time.Second)
 
-	msgs := enq.getMessages()
-	if len(msgs) != 1 {
-		t.Fatalf("expected exactly 1 message, got %d", len(msgs))
+	if !waitForMessages(enq, 1, 2*time.Second) {
+		t.Fatalf("expected exactly 1 message, got %d", len(enq.getMessages()))
 	}
+	msgs := enq.getMessages()
 	if msgs[0].Body != "once when" {
 		t.Errorf("expected 'once when', got %q", msgs[0].Body)
 	}
-	if len(se.List()) != 0 {
+	if !waitForScheduleRemoved(se, 2*time.Second) {
 		t.Fatal("RunOnceWhen schedule should be removed after firing")
 	}
 }
@@ -524,7 +553,7 @@ func TestScheduleEngine_EnvVarsSet(t *testing.T) {
 
 	clk.Advance(1 * time.Second)
 
-	if len(enq.getMessages()) != 1 {
+	if !waitForMessages(enq, 1, 2*time.Second) {
 		t.Fatalf("expected 1 message, got %d", len(enq.getMessages()))
 	}
 }

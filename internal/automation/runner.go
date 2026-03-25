@@ -3,7 +3,6 @@ package automation
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"sync"
@@ -29,21 +28,16 @@ type MessageEnqueuer interface {
 type ActionRunner struct {
 	enqueuer MessageEnqueuer
 	baseEnv  map[string]string // base env vars inherited by all actions
-	logger   *slog.Logger
 
 	sem chan struct{} // semaphore for concurrent exec
 	wg  sync.WaitGroup
 }
 
 // NewActionRunner creates a runner with the given message enqueuer and base env.
-func NewActionRunner(enqueuer MessageEnqueuer, baseEnv map[string]string, logger *slog.Logger) *ActionRunner {
-	if logger == nil {
-		logger = slog.Default()
-	}
+func NewActionRunner(enqueuer MessageEnqueuer, baseEnv map[string]string) *ActionRunner {
 	return &ActionRunner{
 		enqueuer: enqueuer,
 		baseEnv:  baseEnv,
-		logger:   logger,
 		sem:      make(chan struct{}, MaxConcurrentExec),
 	}
 }
@@ -86,8 +80,7 @@ func (r *ActionRunner) runExec(action Action, extraEnv map[string]string) error 
 	select {
 	case r.sem <- struct{}{}:
 	default:
-		r.logger.Warn("action dropped (max concurrent exec reached)",
-			"command", truncate(action.Exec, 80))
+		fmt.Fprintf(os.Stderr, "automation: action dropped (max concurrent exec reached) command=%s\n", truncate(action.Exec, 80))
 		return fmt.Errorf("exec dropped: max concurrent actions (%d) reached", MaxConcurrentExec)
 	}
 
@@ -107,9 +100,7 @@ func (r *ActionRunner) runExec(action Action, extraEnv map[string]string) error 
 		cmd.Stderr = os.Stderr
 
 		if err := cmd.Run(); err != nil {
-			r.logger.Warn("exec action failed",
-				"command", truncate(action.Exec, 80),
-				"error", err)
+			fmt.Fprintf(os.Stderr, "automation: exec action failed command=%s error=%v\n", truncate(action.Exec, 80), err)
 		}
 	}()
 	return nil
