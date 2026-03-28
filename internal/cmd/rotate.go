@@ -305,9 +305,27 @@ func waitForAgentStop(name string, timeout time.Duration) {
 // moveSessionLog moves the harness's native session log from the old profile
 // directory to the new one. Uses the RuntimeConfig's NativeLogPathSuffix to
 // compute the correct path. Returns nil if the harness has no native logs.
+//
+// For codex agents, NativeLogPathSuffix may not have been persisted due to
+// async discovery. In that case, we attempt to discover it by globbing for
+// the session log file using the HarnessSessionID (conversation ID).
 func moveSessionLog(rc *config.RuntimeConfig, oldProfile, newProfile string) error {
-	if rc.HarnessConfigPathPrefix == "" || rc.NativeLogPathSuffix == "" {
+	if rc.HarnessConfigPathPrefix == "" {
 		return nil
+	}
+
+	// If NativeLogPathSuffix is empty, try to discover it for codex agents.
+	if rc.NativeLogPathSuffix == "" {
+		if rc.HarnessType == "codex" && rc.HarnessSessionID != "" {
+			oldConfigDir := filepath.Join(rc.HarnessConfigPathPrefix, oldProfile)
+			discovered := discoverCodexSessionLog(oldConfigDir, rc.HarnessSessionID)
+			if discovered != "" {
+				rc.NativeLogPathSuffix = discovered
+			}
+		}
+		if rc.NativeLogPathSuffix == "" {
+			return nil
+		}
 	}
 
 	oldConfigDir := filepath.Join(rc.HarnessConfigPathPrefix, oldProfile)
@@ -334,4 +352,21 @@ func moveSessionLog(rc *config.RuntimeConfig, oldProfile, newProfile string) err
 	}
 
 	return nil
+}
+
+// discoverCodexSessionLog attempts to find a codex session log file in the
+// given config directory by conversation ID. Returns the path suffix relative
+// to configDir, or empty string if not found. This mirrors the glob pattern
+// used by the codex harness's onConversationStarted callback.
+func discoverCodexSessionLog(configDir, conversationID string) string {
+	pattern := filepath.Join(configDir, "sessions", "*", "*", "*", "*-"+conversationID+".jsonl")
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) == 0 {
+		return ""
+	}
+	rel, err := filepath.Rel(configDir, matches[0])
+	if err != nil {
+		return ""
+	}
+	return rel
 }

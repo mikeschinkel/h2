@@ -161,6 +161,132 @@ func TestRotate_Success(t *testing.T) {
 	}
 }
 
+// TestRotate_CodexDiscoversSessionLog verifies that rotating a codex agent
+// with an empty NativeLogPathSuffix (which happens when the async discovery
+// didn't persist) still finds and moves the session log by globbing for the
+// conversation ID in the old profile's sessions directory.
+func TestRotate_CodexDiscoversSessionLog(t *testing.T) {
+	setupRotateTestH2Dir(t)
+	name := "rotate-test-codex-discover"
+	tmpDir := t.TempDir()
+	convID := "conv-abc-123"
+
+	// Create old and new profile dirs.
+	os.MkdirAll(filepath.Join(tmpDir, "profile-a"), 0o755)
+	os.MkdirAll(filepath.Join(tmpDir, "profile-b"), 0o755)
+
+	// Create a codex session log in the old profile with the expected naming
+	// convention: sessions/YYYY/MM/DD/rollout-<timestamp>-<convID>.jsonl
+	oldLogDir := filepath.Join(tmpDir, "profile-a", "sessions", "2026", "03", "27")
+	os.MkdirAll(oldLogDir, 0o755)
+	logContent := `{"role":"user","content":"hello"}`
+	oldLogPath := filepath.Join(oldLogDir, "rollout-1711540800-"+convID+".jsonl")
+	os.WriteFile(oldLogPath, []byte(logContent), 0o644)
+
+	// Write RuntimeConfig with empty NativeLogPathSuffix (simulating the
+	// async discovery race condition where it was never persisted).
+	sessionDir := writeTestRuntimeConfig(t, name, &config.RuntimeConfig{
+		AgentName:               name,
+		SessionID:               "internal-sid",
+		HarnessSessionID:        convID,
+		HarnessType:             "codex",
+		HarnessConfigPathPrefix: tmpDir,
+		Profile:                 "profile-a",
+		NativeLogPathSuffix:     "", // not persisted — this is the bug
+		Command:                 "codex",
+		CWD:                     tmpDir,
+		StartedAt:               "2024-01-01T00:00:00Z",
+	})
+
+	cmd := newRotateCmd()
+	cmd.SetArgs([]string{name, "profile-b"})
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify profile updated.
+	rc, err := config.ReadRuntimeConfig(sessionDir)
+	if err != nil {
+		t.Fatalf("read config after rotate: %v", err)
+	}
+	if rc.Profile != "profile-b" {
+		t.Errorf("Profile = %q, want %q", rc.Profile, "profile-b")
+	}
+
+	// Verify NativeLogPathSuffix was discovered and persisted.
+	wantSuffix := filepath.Join("sessions", "2026", "03", "27", "rollout-1711540800-"+convID+".jsonl")
+	if rc.NativeLogPathSuffix != wantSuffix {
+		t.Errorf("NativeLogPathSuffix = %q, want %q", rc.NativeLogPathSuffix, wantSuffix)
+	}
+
+	// Verify old log was moved.
+	if _, err := os.Stat(oldLogPath); !os.IsNotExist(err) {
+		t.Error("old session log should not exist after rotate")
+	}
+
+	// Verify new log exists with correct content.
+	newLogPath := filepath.Join(tmpDir, "profile-b", wantSuffix)
+	data, err := os.ReadFile(newLogPath)
+	if err != nil {
+		t.Fatalf("new session log should exist: %v", err)
+	}
+	if string(data) != logContent {
+		t.Errorf("log content = %q, want %q", string(data), logContent)
+	}
+}
+
+// TestRotate_CodexWithSuffix verifies that rotating a codex agent where
+// NativeLogPathSuffix IS already set works correctly (no discovery needed).
+func TestRotate_CodexWithSuffix(t *testing.T) {
+	setupRotateTestH2Dir(t)
+	name := "rotate-test-codex-suffix"
+	tmpDir := t.TempDir()
+	convID := "conv-def-456"
+
+	os.MkdirAll(filepath.Join(tmpDir, "profile-a"), 0o755)
+	os.MkdirAll(filepath.Join(tmpDir, "profile-b"), 0o755)
+
+	logSuffix := filepath.Join("sessions", "2026", "03", "27", "rollout-1711540800-"+convID+".jsonl")
+	oldLogPath := filepath.Join(tmpDir, "profile-a", logSuffix)
+	os.MkdirAll(filepath.Dir(oldLogPath), 0o755)
+	logContent := `{"role":"assistant","content":"hi"}`
+	os.WriteFile(oldLogPath, []byte(logContent), 0o644)
+
+	writeTestRuntimeConfig(t, name, &config.RuntimeConfig{
+		AgentName:               name,
+		SessionID:               "internal-sid",
+		HarnessSessionID:        convID,
+		HarnessType:             "codex",
+		HarnessConfigPathPrefix: tmpDir,
+		Profile:                 "profile-a",
+		NativeLogPathSuffix:     logSuffix,
+		Command:                 "codex",
+		CWD:                     tmpDir,
+		StartedAt:               "2024-01-01T00:00:00Z",
+	})
+
+	cmd := newRotateCmd()
+	cmd.SetArgs([]string{name, "profile-b"})
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify log moved.
+	if _, err := os.Stat(oldLogPath); !os.IsNotExist(err) {
+		t.Error("old log should not exist")
+	}
+	newLogPath := filepath.Join(tmpDir, "profile-b", logSuffix)
+	data, err := os.ReadFile(newLogPath)
+	if err != nil {
+		t.Fatalf("new log should exist: %v", err)
+	}
+	if string(data) != logContent {
+		t.Errorf("content = %q, want %q", string(data), logContent)
+	}
+}
+
 func TestRotate_GenericHarness_NoLogMove(t *testing.T) {
 	setupRotateTestH2Dir(t)
 	name := "rotate-test-generic"

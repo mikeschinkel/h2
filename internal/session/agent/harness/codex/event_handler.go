@@ -187,6 +187,12 @@ func (p *EventHandler) processEvent(name string, attrs []otelAttribute, ts time.
 		p.resetTokenBaselines()
 		convID := getAttr(attrs, "conversation.id")
 		model := getAttr(attrs, "model")
+		// Call onConversationStarted BEFORE emitting the SessionStarted event
+		// so that NativeLogPathSuffix is set on the RC before the daemon's
+		// OnSessionStarted callback writes it to disk.
+		if p.onConversationStarted != nil && convID != "" {
+			p.onConversationStarted(convID)
+		}
 		p.emit(monitor.AgentEvent{
 			Type:      monitor.EventSessionStarted,
 			Timestamp: ts,
@@ -196,9 +202,6 @@ func (p *EventHandler) processEvent(name string, attrs []otelAttribute, ts time.
 			},
 		})
 		p.emitStateChange(ts, monitor.StateIdle, monitor.SubStateNone)
-		if p.onConversationStarted != nil && convID != "" {
-			p.onConversationStarted(convID)
-		}
 		p.debugf("span=codex.conversation_starts conversation.id=%q model=%q", convID, model)
 		return spanProcessResult{recognized: true, emitted: 2}
 
