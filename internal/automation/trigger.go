@@ -6,6 +6,8 @@ import (
 	"os"
 	"sync"
 
+	"github.com/google/uuid"
+
 	"h2/internal/session/agent/monitor"
 )
 
@@ -56,10 +58,14 @@ func (te *TriggerEngine) Run(ctx context.Context, events <-chan monitor.AgentEve
 	}
 }
 
-// Add registers a trigger. Returns false if the ID already exists.
+// Add registers a trigger. Auto-generates an ID if empty.
+// Returns false if the ID already exists.
 func (te *TriggerEngine) Add(t *Trigger) bool {
 	te.mu.Lock()
 	defer te.mu.Unlock()
+	if t.ID == "" {
+		t.ID = uuid.New().String()[:8]
+	}
 	if _, exists := te.triggers[t.ID]; exists {
 		return false
 	}

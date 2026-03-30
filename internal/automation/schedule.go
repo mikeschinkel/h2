@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/teambition/rrule-go"
 )
 
@@ -80,6 +81,9 @@ func (se *ScheduleEngine) Add(s *Schedule) error {
 	se.mu.Lock()
 	defer se.mu.Unlock()
 
+	if s.ID == "" {
+		s.ID = uuid.New().String()[:8]
+	}
 	if _, exists := se.schedules[s.ID]; exists {
 		return fmt.Errorf("schedule ID %q already exists", s.ID)
 	}
