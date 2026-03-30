@@ -194,6 +194,13 @@ func (d *Daemon) handleRelaunch(conn net.Conn, req *message.Request) {
 		s.RC.ResumeSessionID = ""
 	}
 
+	// Track whether this is a rotate (profile change) or plain restart,
+	// and capture the old profile for the event payload.
+	s.relaunchIsRotate = req.Rotate
+	if req.Rotate {
+		s.relaunchOldProfile = s.RC.Profile
+	}
+
 	// Flag the lifecycle loop to do a full config re-setup on relaunch.
 	s.relaunchWithSetup = true
 

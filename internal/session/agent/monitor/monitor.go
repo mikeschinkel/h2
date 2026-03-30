@@ -345,6 +345,17 @@ func (m *AgentMonitor) Subscribe() <-chan AgentEvent {
 	return ch
 }
 
+// Inject sends an event into the monitor's processing pipeline from
+// outside the harness. Used by the session layer to emit events like
+// session_rotated and session_restarted that originate above the harness.
+// Non-blocking: drops the event if the channel is full.
+func (m *AgentMonitor) Inject(ev AgentEvent) {
+	select {
+	case m.events <- ev:
+	default:
+	}
+}
+
 // SetExited transitions to the Exited state. Called externally when
 // the child process exits.
 func (m *AgentMonitor) SetExited() {

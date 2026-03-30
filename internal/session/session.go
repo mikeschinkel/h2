@@ -72,6 +72,13 @@ type Session struct {
 	// the pipeline before starting the new child process.
 	relaunchWithSetup bool
 
+	// relaunchIsRotate distinguishes profile rotation from plain restart.
+	// Set by handleRelaunch, consumed by the lifecycle loop to emit the
+	// correct event (session_rotated vs session_restarted).
+	relaunchIsRotate bool
+	// relaunchOldProfile records the profile before rotation for the event payload.
+	relaunchOldProfile string
+
 	exitNotify chan struct{} // buffered(1), signaled on child exit
 
 	stopCh     chan struct{}
@@ -623,6 +630,28 @@ func (s *Session) lifecycleLoop(stopStatus chan struct{}, interactive bool) erro
 				s.startAgentPipeline(context.Background())
 			}
 			go s.VT.PipeOutput(s.pipeOutputCallback())
+
+			// Emit relaunch events for triggers. Rotate always also
+			// emits a restart event so triggers on "session_restarted"
+			// catch both cases.
+			now := time.Now()
+			if s.relaunchIsRotate {
+				s.monitor.Inject(monitor.AgentEvent{
+					Type:      monitor.EventSessionRotated,
+					Timestamp: now,
+					Data: monitor.SessionRotatedData{
+						OldProfile: s.relaunchOldProfile,
+						NewProfile: s.RC.Profile,
+					},
+				})
+			}
+			s.monitor.Inject(monitor.AgentEvent{
+				Type:      monitor.EventSessionRestarted,
+				Timestamp: now,
+				Data:      monitor.SessionRestartedData{},
+			})
+			s.relaunchIsRotate = false
+			s.relaunchOldProfile = ""
 
 			s.Queue.Unpause()
 			continue

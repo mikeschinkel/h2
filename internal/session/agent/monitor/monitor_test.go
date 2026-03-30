@@ -632,3 +632,51 @@ func TestMetrics_SnapshotIsolation(t *testing.T) {
 		t.Errorf("ToolCounts[Bash] = %d, want 1 (snapshot mutation leaked)", snap2.ToolCounts["Bash"])
 	}
 }
+
+func TestInject_ReachesSubscribers(t *testing.T) {
+	m := New()
+	sub := m.Subscribe()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+
+	// Inject a session_rotated event from outside the harness.
+	m.Inject(AgentEvent{
+		Type:      EventSessionRotated,
+		Timestamp: time.Now(),
+		Data:      SessionRotatedData{OldProfile: "default", NewProfile: "alt1"},
+	})
+
+	select {
+	case ev := <-sub:
+		if ev.Type != EventSessionRotated {
+			t.Errorf("Type = %v, want EventSessionRotated", ev.Type)
+		}
+		data, ok := ev.Data.(SessionRotatedData)
+		if !ok {
+			t.Fatal("Data is not SessionRotatedData")
+		}
+		if data.OldProfile != "default" || data.NewProfile != "alt1" {
+			t.Errorf("profiles = (%q, %q), want (default, alt1)", data.OldProfile, data.NewProfile)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("subscriber did not receive injected event")
+	}
+
+	// Also inject session_restarted.
+	m.Inject(AgentEvent{
+		Type:      EventSessionRestarted,
+		Timestamp: time.Now(),
+		Data:      SessionRestartedData{},
+	})
+
+	select {
+	case ev := <-sub:
+		if ev.Type != EventSessionRestarted {
+			t.Errorf("Type = %v, want EventSessionRestarted", ev.Type)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("subscriber did not receive injected restart event")
+	}
+}

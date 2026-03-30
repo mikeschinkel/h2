@@ -32,6 +32,7 @@ type Request struct {
 
 	// relaunch fields
 	Resume bool `json:"resume,omitempty"` // set ResumeSessionID from HarnessSessionID
+	Rotate bool `json:"rotate,omitempty"` // true when relaunch is due to profile rotation
 
 	// hook_event fields
 	EventName string          `json:"event_name,omitempty"`

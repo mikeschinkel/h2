@@ -123,7 +123,7 @@ argument order.`,
 			// updated config. The daemon stays alive and terminals stay attached.
 			if running {
 				fmt.Fprintf(cmd.OutOrStderr(), "Relaunching agent %q...\n", agentName)
-				if err := relaunchAgent(agentName, true); err != nil {
+				if err := relaunchAgent(agentName, true, true); err != nil {
 					return fmt.Errorf("relaunch agent: %w", err)
 				}
 			}
@@ -255,7 +255,7 @@ func isAgentRunning(name string) bool {
 // The daemon kills the child process, re-reads the updated RuntimeConfig from
 // disk, re-initializes the harness, and starts a new child process. The daemon
 // stays alive and attached terminals remain connected.
-func relaunchAgent(name string, resume bool) error {
+func relaunchAgent(name string, resume bool, rotate ...bool) error {
 	sockPath, err := socketdir.Find(name)
 	if err != nil {
 		return err
@@ -266,7 +266,8 @@ func relaunchAgent(name string, resume bool) error {
 	}
 	defer conn.Close()
 
-	if err := message.SendRequest(conn, &message.Request{Type: "relaunch", Resume: resume}); err != nil {
+	isRotate := len(rotate) > 0 && rotate[0]
+	if err := message.SendRequest(conn, &message.Request{Type: "relaunch", Resume: resume, Rotate: isRotate}); err != nil {
 		return fmt.Errorf("send relaunch: %w", err)
 	}
 	resp, err := message.ReadResponse(conn)

@@ -27,6 +27,8 @@ const (
 	EventSessionEnded
 	EventUsageLimitInfo
 	EventPermissionDecision
+	EventSessionRotated
+	EventSessionRestarted
 )
 
 // String returns the event type name.
@@ -54,6 +56,10 @@ func (t AgentEventType) String() string {
 		return "usage_limit_info"
 	case EventPermissionDecision:
 		return "permission_decision"
+	case EventSessionRotated:
+		return "session_rotated"
+	case EventSessionRestarted:
+		return "session_restarted"
 	default:
 		return "unknown"
 	}
@@ -143,3 +149,12 @@ type PermissionDecisionData struct {
 	ProcessedBy string `json:"processed_by"` // dcg, ai_reviewer, forced, none
 	Role        string `json:"role"`         // role name from session metadata
 }
+
+// SessionRotatedData is the payload for EventSessionRotated.
+type SessionRotatedData struct {
+	OldProfile string `json:"old_profile"`
+	NewProfile string `json:"new_profile"`
+}
+
+// SessionRestartedData is the payload for EventSessionRestarted.
+type SessionRestartedData struct{}

@@ -368,6 +368,46 @@ func TestTriggerEngine_EnvVarsSet(t *testing.T) {
 	}
 }
 
+func TestTriggerEngine_RotateEnvVars(t *testing.T) {
+	te, enq := newTestTriggerEngine()
+	te.Add(&Trigger{
+		ID:    "t1",
+		Event: "session_rotated",
+		// Condition checks the rotate-specific env vars.
+		Condition: `test "$H2_OLD_PROFILE" = "default" && test "$H2_NEW_PROFILE" = "alt1"`,
+		Action:    Action{Message: "rotated"},
+	})
+
+	sendEvent(te, monitor.AgentEvent{
+		Type:      monitor.EventSessionRotated,
+		Timestamp: time.Now(),
+		Data:      monitor.SessionRotatedData{OldProfile: "default", NewProfile: "alt1"},
+	})
+
+	if len(enq.getMessages()) != 1 {
+		t.Fatal("trigger with rotate env condition should fire")
+	}
+}
+
+func TestTriggerEngine_RestartEventFires(t *testing.T) {
+	te, enq := newTestTriggerEngine()
+	te.Add(&Trigger{
+		ID:     "t1",
+		Event:  "session_restarted",
+		Action: Action{Message: "restarted"},
+	})
+
+	sendEvent(te, monitor.AgentEvent{
+		Type:      monitor.EventSessionRestarted,
+		Timestamp: time.Now(),
+		Data:      monitor.SessionRestartedData{},
+	})
+
+	if len(enq.getMessages()) != 1 {
+		t.Fatal("session_restarted trigger should fire")
+	}
+}
+
 // mockClock is a controllable clock for deterministic testing.
 type mockClock struct {
 	mu  sync.Mutex

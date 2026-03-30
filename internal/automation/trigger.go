@@ -209,6 +209,14 @@ func (te *TriggerEngine) buildTriggerEnv(t *Trigger, evt monitor.AgentEvent) map
 		env["H2_AGENT_SUBSTATE"] = sub
 	}
 
+	// Rotate-specific vars.
+	if evt.Type == monitor.EventSessionRotated {
+		if data, ok := evt.Data.(monitor.SessionRotatedData); ok {
+			env["H2_OLD_PROFILE"] = data.OldProfile
+			env["H2_NEW_PROFILE"] = data.NewProfile
+		}
+	}
+
 	// Identity var.
 	env["H2_TRIGGER_ID"] = t.ID
 

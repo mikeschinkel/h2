@@ -184,6 +184,39 @@ func TestTrigger_MatchesEvent_ApprovalRequested(t *testing.T) {
 	}
 }
 
+func TestTrigger_MatchesEvent_SessionRotated(t *testing.T) {
+	tr := &Trigger{Event: "session_rotated"}
+	evt := monitor.AgentEvent{
+		Type:      monitor.EventSessionRotated,
+		Timestamp: time.Now(),
+		Data:      monitor.SessionRotatedData{OldProfile: "default", NewProfile: "alt1"},
+	}
+	if !tr.MatchesEvent(evt) {
+		t.Fatal("expected match on session_rotated")
+	}
+	// Should not match session_restarted.
+	evt2 := monitor.AgentEvent{
+		Type:      monitor.EventSessionRestarted,
+		Timestamp: time.Now(),
+		Data:      monitor.SessionRestartedData{},
+	}
+	if tr.MatchesEvent(evt2) {
+		t.Fatal("session_rotated trigger should not match session_restarted event")
+	}
+}
+
+func TestTrigger_MatchesEvent_SessionRestarted(t *testing.T) {
+	tr := &Trigger{Event: "session_restarted"}
+	evt := monitor.AgentEvent{
+		Type:      monitor.EventSessionRestarted,
+		Timestamp: time.Now(),
+		Data:      monitor.SessionRestartedData{},
+	}
+	if !tr.MatchesEvent(evt) {
+		t.Fatal("expected match on session_restarted")
+	}
+}
+
 func TestEvalCondition_Empty(t *testing.T) {
 	if !EvalCondition(t.Context(), "", nil) {
 		t.Fatal("empty condition should return true")
