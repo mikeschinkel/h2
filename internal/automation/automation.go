@@ -195,6 +195,9 @@ type Schedule struct {
 	ConditionMode ConditionMode // how the condition interacts with firings
 
 	Action Action
+
+	// NextFireAt is computed on List() calls, not stored.
+	NextFireAt time.Time
 }
 
 // ScheduleHeader builds the PTY header for a schedule firing.

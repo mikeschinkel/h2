@@ -82,6 +82,7 @@ type ScheduleSpec struct {
 	Message       string `json:"message,omitempty"`
 	From          string `json:"from,omitempty"`
 	Priority      string `json:"priority,omitempty"`
+	NextFireAt    string `json:"next_fire_at,omitempty"` // RFC 3339, computed at list time
 }
 
 // Response is the JSON response sent back over the Unix socket.

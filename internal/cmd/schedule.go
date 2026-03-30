@@ -121,7 +121,7 @@ func newScheduleListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tNAME\tRRULE\tMODE\tACTION")
+			fmt.Fprintln(w, "ID\tNAME\tRRULE\tNEXT\tMODE\tACTION")
 			for _, s := range resp.Schedules {
 				action := "exec"
 				if s.Message != "" {
@@ -131,8 +131,12 @@ func newScheduleListCmd() *cobra.Command {
 				if mode == "" {
 					mode = "run_if"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-					s.ID, s.Name, s.RRule, mode, action)
+				next := s.NextFireAt
+				if next == "" {
+					next = "-"
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					s.ID, s.Name, s.RRule, next, mode, action)
 			}
 			w.Flush()
 			return nil

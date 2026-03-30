@@ -446,7 +446,7 @@ func scheduleFromSpec(s *message.ScheduleSpec) *automation.Schedule {
 }
 
 func specFromSchedule(s *automation.Schedule) *message.ScheduleSpec {
-	return &message.ScheduleSpec{
+	spec := &message.ScheduleSpec{
 		ID:            s.ID,
 		Name:          s.Name,
 		Start:         s.Start,
@@ -458,4 +458,8 @@ func specFromSchedule(s *automation.Schedule) *message.ScheduleSpec {
 		From:          s.Action.From,
 		Priority:      s.Action.Priority,
 	}
+	if !s.NextFireAt.IsZero() {
+		spec.NextFireAt = s.NextFireAt.Local().Format("3:04 PM")
+	}
+	return spec
 }

@@ -130,9 +130,12 @@ func (se *ScheduleEngine) Remove(id string) bool {
 func (se *ScheduleEngine) List() []*Schedule {
 	se.mu.Lock()
 	defer se.mu.Unlock()
+	now := se.clock.Now()
 	result := make([]*Schedule, 0, len(se.schedules))
 	for _, as := range se.schedules {
-		result = append(result, as.spec)
+		s := *as.spec // copy
+		s.NextFireAt = as.rule.After(now, true)
+		result = append(result, &s)
 	}
 	return result
 }
