@@ -253,6 +253,7 @@ func (d *Daemon) AgentInfo() *message.AgentInfo {
 		Name:             s.Name(),
 		Command:          s.RC.Command,
 		SessionID:        s.RC.SessionID,
+		Profile:          s.RC.Profile,
 		RoleName:         s.RC.RoleName,
 		Pod:              os.Getenv("H2_POD"),
 		PodIndex:         s.RC.PodIndex,

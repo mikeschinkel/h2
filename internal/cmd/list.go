@@ -440,7 +440,7 @@ func printAgentLine(info *message.AgentInfo) {
 		metrics = fmt.Sprintf(", %s", strings.Join(parts, " "))
 	}
 
-	// Hook collector — current tool use or blocked state.
+	// Blocked permission indicator.
 	tool := ""
 	if info.BlockedOnPermission {
 		blocked := "permission"
@@ -448,8 +448,6 @@ func printAgentLine(info *message.AgentInfo) {
 			blocked = fmt.Sprintf("permission: %s", info.BlockedToolName)
 		}
 		tool = " " + s.Red(fmt.Sprintf("(blocked %s)", blocked))
-	} else if info.LastToolUse != "" {
-		tool = " " + s.Dim(fmt.Sprintf("(%s)", info.LastToolUse))
 	}
 
 	// Role label.
@@ -458,22 +456,18 @@ func printAgentLine(info *message.AgentInfo) {
 		role = " " + s.Magenta(fmt.Sprintf("(%s)", info.RoleName))
 	}
 
-	// Session ID suffix — show truncated ID if present.
-	sid := ""
-	if info.SessionID != "" {
-		short := info.SessionID
-		if len(short) > 8 {
-			short = short[:8]
-		}
-		sid = " " + s.Dim(fmt.Sprintf("[%s]", short))
+	// Profile label — show unless it's "default".
+	profile := ""
+	if info.Profile != "" && info.Profile != "default" {
+		profile = " " + s.Dim(fmt.Sprintf("[%s]", info.Profile))
 	}
 
 	if info.State != "" {
-		fmt.Printf("  %s %s%s %s — %s, up %s%s%s%s%s\n",
-			symbol, info.Name, role, s.Dim(info.Command), stateLabel, info.Uptime, metrics, queued, sid, tool)
+		fmt.Printf("  %s %s%s%s %s — %s, up %s%s%s%s\n",
+			symbol, info.Name, role, profile, s.Dim(info.Command), stateLabel, info.Uptime, metrics, queued, tool)
 	} else {
-		fmt.Printf("  %s %s%s %s — %s%s%s%s%s\n",
-			symbol, info.Name, role, s.Dim(info.Command), stateLabel, metrics, queued, sid, tool)
+		fmt.Printf("  %s %s%s%s %s — %s%s%s%s\n",
+			symbol, info.Name, role, profile, s.Dim(info.Command), stateLabel, metrics, queued, tool)
 	}
 }
 

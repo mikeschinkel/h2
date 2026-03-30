@@ -127,6 +127,7 @@ type AgentInfo struct {
 	Name             string `json:"name"`
 	Command          string `json:"command"`
 	SessionID        string `json:"session_id,omitempty"`
+	Profile          string `json:"profile,omitempty"`
 	RoleName         string `json:"role,omitempty"`
 	Pod              string `json:"pod,omitempty"`
 	PodIndex         int    `json:"pod_index,omitempty"` // position in pod YAML agent list (0-based)
