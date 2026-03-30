@@ -7,8 +7,13 @@ import (
 	"h2/internal/tilelayout"
 )
 
+// testConfig returns a fixed config for deterministic tests (decoupled from DefaultConfig).
+func testConfig() tilelayout.LayoutConfig {
+	return tilelayout.LayoutConfig{MinPaneWidth: 79, MinPaneHeight: 19}
+}
+
 func TestGenerateTabScript_TwoAgents(t *testing.T) {
-	tab, _ := tilelayout.ComputeTabLayout([]string{"a1", "a2"}, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, tilelayout.DefaultConfig())
+	tab, _ := tilelayout.ComputeTabLayout([]string{"a1", "a2"}, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, testConfig())
 	script := generateTabScript(tab, true)
 
 	// Cols-first: 2 agents → 2 columns, 1 right split, no down splits.
@@ -30,7 +35,7 @@ func TestGenerateTabScript_TwoAgents(t *testing.T) {
 
 func TestGenerateTabScript_ThreeByThree(t *testing.T) {
 	agents := []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9"}
-	tab, remaining := tilelayout.ComputeTabLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, tilelayout.DefaultConfig())
+	tab, remaining := tilelayout.ComputeTabLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, testConfig())
 	if len(remaining) != 0 {
 		t.Errorf("expected no overflow, got %d", len(remaining))
 	}
@@ -59,7 +64,7 @@ func TestGenerateTabScript_ThreeByThree(t *testing.T) {
 
 func TestGenerateTabScript_UnevenColumns(t *testing.T) {
 	agents := []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7"}
-	tab, _ := tilelayout.ComputeTabLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, tilelayout.DefaultConfig())
+	tab, _ := tilelayout.ComputeTabLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, testConfig())
 	script := generateTabScript(tab, true)
 
 	// 3 cols: 2 right splits.
@@ -77,7 +82,7 @@ func TestGenerateTabScript_Overflow(t *testing.T) {
 	for i := range agents {
 		agents[i] = "a" + string(rune('A'+i))
 	}
-	tab, remaining := tilelayout.ComputeTabLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, tilelayout.DefaultConfig())
+	tab, remaining := tilelayout.ComputeTabLayout(agents, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, testConfig())
 	if len(tab.Panes) != 9 {
 		t.Errorf("expected 9 panes in tab 0, got %d", len(tab.Panes))
 	}
@@ -87,7 +92,7 @@ func TestGenerateTabScript_Overflow(t *testing.T) {
 }
 
 func TestGenerateTabScript_SinglePane(t *testing.T) {
-	tab, _ := tilelayout.ComputeTabLayout([]string{"solo"}, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, tilelayout.DefaultConfig())
+	tab, _ := tilelayout.ComputeTabLayout([]string{"solo"}, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 0, testConfig())
 	script := generateTabScript(tab, true)
 
 	if strings.Contains(script, "split") {
@@ -97,7 +102,7 @@ func TestGenerateTabScript_SinglePane(t *testing.T) {
 
 func TestGenerateTabScript_NonFirstTab(t *testing.T) {
 	// Non-first tab should type attach for ALL panes including (0,0).
-	tab, _ := tilelayout.ComputeTabLayout([]string{"a1", "a2"}, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 1, tilelayout.DefaultConfig())
+	tab, _ := tilelayout.ComputeTabLayout([]string{"a1", "a2"}, tilelayout.ScreenSize{Cols: 240, Rows: 60}, 1, testConfig())
 	script := generateTabScript(tab, false)
 
 	if !strings.Contains(script, `h2 attach a1`) {

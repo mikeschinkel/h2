@@ -7,15 +7,20 @@ import (
 	"testing"
 )
 
+// testConfig returns a fixed config for deterministic tests (decoupled from DefaultConfig).
+func testConfig() LayoutConfig {
+	return LayoutConfig{MinPaneWidth: 79, MinPaneHeight: 19}
+}
+
 func TestComputeLayout_Empty(t *testing.T) {
-	layout := ComputeLayout(nil, ScreenSize{240, 60}, ScreenSize{}, DefaultConfig())
+	layout := ComputeLayout(nil, ScreenSize{240, 60}, ScreenSize{}, testConfig())
 	if len(layout.Tabs) != 0 {
 		t.Errorf("expected 0 tabs, got %d", len(layout.Tabs))
 	}
 }
 
 func TestComputeLayout_SingleAgent(t *testing.T) {
-	layout := ComputeLayout([]string{"a1"}, ScreenSize{240, 60}, ScreenSize{}, DefaultConfig())
+	layout := ComputeLayout([]string{"a1"}, ScreenSize{240, 60}, ScreenSize{}, testConfig())
 	if len(layout.Tabs) != 1 {
 		t.Fatalf("expected 1 tab, got %d", len(layout.Tabs))
 	}
@@ -30,7 +35,7 @@ func TestComputeLayout_SingleAgent(t *testing.T) {
 }
 
 func TestComputeLayout_TwoAgents(t *testing.T) {
-	layout := ComputeLayout([]string{"a1", "a2"}, ScreenSize{240, 61}, ScreenSize{}, DefaultConfig())
+	layout := ComputeLayout([]string{"a1", "a2"}, ScreenSize{240, 61}, ScreenSize{}, testConfig())
 	tab := layout.Tabs[0]
 	// Cols-first: 2 agents → 2 columns, 1 row each.
 	if tab.Cols != 2 || tab.Rows != 1 {
@@ -48,7 +53,7 @@ func TestComputeLayout_TwoAgents(t *testing.T) {
 func TestComputeLayout_ThreeByThree(t *testing.T) {
 	agents := []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9"}
 	// 240/80=3 cols, 60/20=3 rows
-	layout := ComputeLayout(agents, ScreenSize{240, 60}, ScreenSize{}, DefaultConfig())
+	layout := ComputeLayout(agents, ScreenSize{240, 60}, ScreenSize{}, testConfig())
 	if len(layout.Tabs) != 1 {
 		t.Fatalf("expected 1 tab, got %d", len(layout.Tabs))
 	}
@@ -82,7 +87,7 @@ func TestComputeLayout_UnevenLastColumn(t *testing.T) {
 	agents := []string{"a1", "a2", "a3", "a4", "a5"}
 	// Cols-first: 5 agents, maxCols=3 → cols=3, rows=ceil(5/3)=2.
 	// Grid: 3 cols x 2 rows, last col has 1 pane.
-	layout := ComputeLayout(agents, ScreenSize{240, 60}, ScreenSize{}, DefaultConfig())
+	layout := ComputeLayout(agents, ScreenSize{240, 60}, ScreenSize{}, testConfig())
 	tab := layout.Tabs[0]
 	if tab.Cols != 3 || tab.Rows != 2 {
 		t.Errorf("expected 3x2, got %dx%d", tab.Cols, tab.Rows)
@@ -119,7 +124,7 @@ func TestComputeLayout_SevenAgents(t *testing.T) {
 	// Cols-first: 7 agents, maxCols=3 → cols=3, rows=ceil(7/3)=3.
 	// Grid: 3x3 with last col having 1 pane.
 	agents := []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7"}
-	layout := ComputeLayout(agents, ScreenSize{240, 60}, ScreenSize{}, DefaultConfig())
+	layout := ComputeLayout(agents, ScreenSize{240, 60}, ScreenSize{}, testConfig())
 	tab := layout.Tabs[0]
 	if tab.Cols != 3 {
 		t.Fatalf("expected 3 cols, got %d", tab.Cols)
@@ -146,7 +151,7 @@ func TestComputeLayout_Overflow(t *testing.T) {
 		agents[i] = fmt.Sprintf("a%d", i+1)
 	}
 	// 3x3 = 9 per tab, 12 agents → 2 tabs (9 + 3).
-	layout := ComputeLayout(agents, ScreenSize{240, 60}, ScreenSize{}, DefaultConfig())
+	layout := ComputeLayout(agents, ScreenSize{240, 60}, ScreenSize{}, testConfig())
 	if len(layout.Tabs) != 2 {
 		t.Fatalf("expected 2 tabs, got %d", len(layout.Tabs))
 	}
@@ -165,7 +170,7 @@ func TestComputeLayout_Overflow(t *testing.T) {
 func TestComputeLayout_SmallScreen(t *testing.T) {
 	// Screen can only fit 1 pane.
 	agents := []string{"a1", "a2", "a3"}
-	layout := ComputeLayout(agents, ScreenSize{80, 20}, ScreenSize{}, DefaultConfig())
+	layout := ComputeLayout(agents, ScreenSize{80, 20}, ScreenSize{}, testConfig())
 	if len(layout.Tabs) != 3 {
 		t.Fatalf("expected 3 tabs (1 per agent), got %d", len(layout.Tabs))
 	}
@@ -180,7 +185,7 @@ func TestComputeLayout_ColumnMajorOrder(t *testing.T) {
 	// 4 agents, 160/79=2 cols, 60/19=3 rows → cols=2, rows=2.
 	// Column-major: a1,a2 in col 0; a3,a4 in col 1.
 	agents := []string{"a1", "a2", "a3", "a4"}
-	layout := ComputeLayout(agents, ScreenSize{160, 60}, ScreenSize{}, DefaultConfig())
+	layout := ComputeLayout(agents, ScreenSize{160, 60}, ScreenSize{}, testConfig())
 	tab := layout.Tabs[0]
 	if tab.Panes[0].AgentName != "a1" || tab.Panes[0].Col != 0 {
 		t.Errorf("pane 0: %+v", tab.Panes[0])
@@ -235,7 +240,7 @@ func TestComputeLayout_RemainderAbsorbed(t *testing.T) {
 }
 
 func TestTotalPanes(t *testing.T) {
-	layout := ComputeLayout([]string{"a1", "a2", "a3"}, ScreenSize{80, 20}, ScreenSize{}, DefaultConfig())
+	layout := ComputeLayout([]string{"a1", "a2", "a3"}, ScreenSize{80, 20}, ScreenSize{}, testConfig())
 	// 3 tabs, 1 pane each.
 	if got := layout.TotalPanes(); got != 3 {
 		t.Errorf("TotalPanes: got %d, want 3", got)
@@ -252,7 +257,7 @@ func TestComputeLayout_OverflowDifferentSize(t *testing.T) {
 	layout := ComputeLayout(agents,
 		ScreenSize{120, 40}, // current pane
 		ScreenSize{240, 60}, // overflow (full window)
-		DefaultConfig())
+		testConfig())
 
 	if len(layout.Tabs) < 2 {
 		t.Fatalf("expected at least 2 tabs, got %d", len(layout.Tabs))
@@ -289,7 +294,7 @@ func TestComputeLayout_OverflowDifferentSize(t *testing.T) {
 
 func TestPrintDryRun(t *testing.T) {
 	agents := []string{"agent-a", "agent-b", "agent-c", "agent-d", "agent-e"}
-	layout := ComputeLayout(agents, ScreenSize{240, 60}, ScreenSize{}, DefaultConfig())
+	layout := ComputeLayout(agents, ScreenSize{240, 60}, ScreenSize{}, testConfig())
 
 	var buf bytes.Buffer
 	PrintDryRun(layout, nil, &buf)
@@ -312,7 +317,7 @@ func TestPrintDryRun(t *testing.T) {
 func TestPrintDryRun_WithOverflow(t *testing.T) {
 	tab0, overflow := ComputeTabLayout(
 		[]string{"a1", "a2", "a3", "a4", "a5"},
-		ScreenSize{80, 20}, 0, DefaultConfig())
+		ScreenSize{80, 20}, 0, testConfig())
 	layout := TileLayout{Tabs: []TabLayout{tab0}}
 
 	var buf bytes.Buffer
