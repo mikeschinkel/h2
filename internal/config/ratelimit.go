@@ -59,6 +59,9 @@ func IsProfileRateLimited(profileDir string) *RateLimitInfo {
 	if time.Now().Before(info.ResetsAt) {
 		return info
 	}
+	// Expired — clean up the stale file. Best-effort: if removal fails
+	// the next call will still see it as expired and try again.
+	_ = ClearRateLimit(profileDir)
 	return nil
 }
 
