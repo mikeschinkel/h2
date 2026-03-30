@@ -2,12 +2,14 @@
   "id": "h2-jre",
   "title": "test task",
   "description": "",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "created_by": "Danny Cosson",
   "owner": "dcosson@gmail.com",
-  "assignee": "wild-wolf",
+  "assignee": "free-stone",
   "created_at": "2026-03-29T21:18:29.212191-07:00",
-  "updated_at": "2026-03-29T21:59:21.084524-07:00"
+  "updated_at": "2026-03-29T22:11:46.771361-07:00",
+  "closed_at": "2026-03-29T22:11:46.771361-07:00",
+  "close_reason": "Closed"
 }
