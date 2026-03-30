@@ -20,6 +20,8 @@ func TestParseAgentPrefix(t *testing.T) {
 		{"agent:no space", "agent", "no space"},
 		{"agent:  extra spaces", "agent", "extra spaces"},
 		{": empty agent", "", ": empty agent"},
+		{"misc-sand: first line\n\nsecond paragraph", "misc-sand", "first line\n\nsecond paragraph"},
+		{"agent: line1\nline2\nline3", "agent", "line1\nline2\nline3"},
 	}
 
 	for _, tt := range tests {

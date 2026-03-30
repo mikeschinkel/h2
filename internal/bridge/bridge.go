@@ -50,7 +50,7 @@ func FormatAgentTag(agent, text string) string {
 	return "[" + agent + "] " + text
 }
 
-var agentPrefixRe = regexp.MustCompile(`^([a-zA-Z0-9_-]+):\s*(.*)$`)
+var agentPrefixRe = regexp.MustCompile(`(?s)^([a-zA-Z0-9_-]+):\s*(.*)$`)
 
 // ParseAgentPrefix extracts an "agent-name: body" prefix from text.
 // The agent name is lowercased to match socket naming conventions.
