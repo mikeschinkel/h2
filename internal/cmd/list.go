@@ -456,9 +456,9 @@ func printAgentLine(info *message.AgentInfo) {
 		role = " " + s.Magenta(fmt.Sprintf("(%s)", info.RoleName))
 	}
 
-	// Profile label — show unless it's "default".
+	// Profile label.
 	profile := ""
-	if info.Profile != "" && info.Profile != "default" {
+	if info.Profile != "" {
 		profile = " " + s.Dim(fmt.Sprintf("[%s]", info.Profile))
 	}
 
