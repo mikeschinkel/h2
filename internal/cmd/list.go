@@ -463,11 +463,11 @@ func printAgentLine(info *message.AgentInfo) {
 	}
 
 	if info.State != "" {
-		fmt.Printf("  %s %s%s%s %s — %s, up %s%s%s%s\n",
-			symbol, info.Name, role, profile, s.Dim(info.Command), stateLabel, info.Uptime, metrics, queued, tool)
+		fmt.Printf("  %s %s%s %s%s — %s, up %s%s%s%s\n",
+			symbol, info.Name, role, s.Dim(info.Command), profile, stateLabel, info.Uptime, metrics, queued, tool)
 	} else {
-		fmt.Printf("  %s %s%s%s %s — %s%s%s%s\n",
-			symbol, info.Name, role, profile, s.Dim(info.Command), stateLabel, metrics, queued, tool)
+		fmt.Printf("  %s %s%s %s%s — %s%s%s%s\n",
+			symbol, info.Name, role, s.Dim(info.Command), profile, stateLabel, metrics, queued, tool)
 	}
 }
 
