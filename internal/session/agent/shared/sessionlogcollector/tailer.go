@@ -16,6 +16,7 @@ type Tailer struct {
 	path         string
 	pollInterval time.Duration
 	onLine       func(line []byte)
+	seekToEnd    bool // if true, skip existing content and only process new lines
 }
 
 // New creates a Tailer for the given path and line callback.
@@ -24,6 +25,18 @@ func New(path string, onLine func(line []byte)) *Tailer {
 		path:         path,
 		pollInterval: defaultPollInterval,
 		onLine:       onLine,
+	}
+}
+
+// NewTailOnly creates a Tailer that skips existing file content and only
+// processes lines appended after the tailer starts. Used after relaunch
+// to avoid replaying old events from a moved session log.
+func NewTailOnly(path string, onLine func(line []byte)) *Tailer {
+	return &Tailer{
+		path:         path,
+		pollInterval: defaultPollInterval,
+		onLine:       onLine,
+		seekToEnd:    true,
 	}
 }
 
@@ -50,6 +63,10 @@ func (t *Tailer) Run(ctx context.Context) {
 		}
 	}
 	defer f.Close()
+
+	if t.seekToEnd {
+		f.Seek(0, 2) // seek to end
+	}
 
 	reader := bufio.NewReader(f)
 	var partial []byte

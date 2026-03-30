@@ -177,9 +177,14 @@ func (h *ClaudeCodeHarness) PrepareForLaunch(dryRun bool) (harness.LaunchConfig,
 // Start forwards internal events to the external channel and blocks
 // until ctx is cancelled.
 func (h *ClaudeCodeHarness) Start(ctx context.Context, events chan<- monitor.AgentEvent) error {
-	// Start session log tailer if configured.
+	// Start session log tailer if configured. On resume (relaunch/rotate),
+	// skip existing content to avoid replaying old events like rate limits.
 	if h.sessionLogPath != "" {
-		go sessionlogcollector.New(h.sessionLogPath, h.eventHandler.OnSessionLogLine).Run(ctx)
+		if h.rc.ResumeSessionID != "" {
+			go sessionlogcollector.NewTailOnly(h.sessionLogPath, h.eventHandler.OnSessionLogLine).Run(ctx)
+		} else {
+			go sessionlogcollector.New(h.sessionLogPath, h.eventHandler.OnSessionLogLine).Run(ctx)
+		}
 	}
 
 	// Forward internal events to the external channel.
