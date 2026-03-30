@@ -303,13 +303,22 @@ func TestPrepareForLaunch_WithSessionID(t *testing.T) {
 }
 
 func TestPrepareForLaunch_SetsSessionLogPath(t *testing.T) {
-	h := New(&config.RuntimeConfig{HarnessType: "claude_code", Command: "claude", AgentName: "test-agent", CWD: "/tmp", StartedAt: "2024-01-01T00:00:00Z", SessionID: "custom-session-id"}, nil)
+	h := New(&config.RuntimeConfig{
+		HarnessType:             "claude_code",
+		Command:                 "claude",
+		AgentName:               "test-agent",
+		CWD:                     "/tmp",
+		StartedAt:               "2024-01-01T00:00:00Z",
+		SessionID:               "custom-session-id",
+		HarnessConfigPathPrefix: "/tmp/claude-config",
+		Profile:                 "alt1",
+	}, nil)
 	_, err := h.PrepareForLaunch(true)
 	if err != nil {
 		t.Fatalf("PrepareForLaunch: %v", err)
 	}
 
-	want := filepath.Join(config.SessionDir("test-agent"), "session.jsonl")
+	want := filepath.Join("/tmp/claude-config", "alt1", NativeLogPathSuffix("/tmp", "custom-session-id"))
 	if h.sessionLogPath != want {
 		t.Fatalf("sessionLogPath = %q, want %q", h.sessionLogPath, want)
 	}

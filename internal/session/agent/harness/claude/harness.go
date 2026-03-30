@@ -137,10 +137,10 @@ func (h *ClaudeCodeHarness) PrepareForLaunch(dryRun bool) (harness.LaunchConfig,
 		h.sessionID = uuid.New().String()
 	}
 	agentName := h.rc.AgentName
-	h.sessionLogPath = resolveSessionLogPath(agentName, h.sessionID)
 	// Set native log path suffix on the RuntimeConfig so it's persisted
 	// in session metadata and available to external callers.
 	h.rc.NativeLogPathSuffix = NativeLogPathSuffix(h.rc.CWD, h.sessionID)
+	h.sessionLogPath = h.rc.NativeSessionLogPath()
 	h.eventHandler.SetExpectedSessionID(h.sessionID)
 	h.eventHandler.ConfigureDebug(resolveDebugPath(agentName, h.sessionID))
 
@@ -240,14 +240,6 @@ func resolveSessionDir(agentName, sessionID string) string {
 		return config.SessionDir(agentName)
 	}
 	return config.FindSessionDirByID(sessionID)
-}
-
-func resolveSessionLogPath(agentName, sessionID string) string {
-	sessionDir := resolveSessionDir(agentName, sessionID)
-	if sessionDir == "" {
-		return ""
-	}
-	return filepath.Join(sessionDir, "session.jsonl")
 }
 
 // NativeLogPathSuffix returns the path suffix for Claude Code's native session
