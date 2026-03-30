@@ -459,7 +459,7 @@ func specFromSchedule(s *automation.Schedule) *message.ScheduleSpec {
 		Priority:      s.Action.Priority,
 	}
 	if !s.NextFireAt.IsZero() {
-		spec.NextFireAt = s.NextFireAt.Local().Format("3:04:05 PM")
+		spec.NextFireAt = s.NextFireAt.Local().Format("3:04 PM")
 	}
 	return spec
 }
