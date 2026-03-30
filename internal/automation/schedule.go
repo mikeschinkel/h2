@@ -235,13 +235,17 @@ func evalConditionMode(mode ConditionMode, condPass bool, noCondition bool) (boo
 
 // parseSchedule parses the RRULE string and start time from a Schedule spec.
 func parseSchedule(s *Schedule) (*rrule.RRule, time.Time, error) {
-	startTime := time.Now()
+	var startTime time.Time
 	if s.Start != "" {
 		t, err := time.Parse(time.RFC3339, s.Start)
 		if err != nil {
 			return nil, time.Time{}, fmt.Errorf("parse start time: %w", err)
 		}
 		startTime = t
+	} else {
+		// No explicit start: align to the top of the current minute so
+		// minutely schedules fire at :00 seconds (e.g. 10:00, 10:10).
+		startTime = time.Now().Truncate(time.Minute)
 	}
 
 	// Build the full RRULE string with DTSTART for the library.
