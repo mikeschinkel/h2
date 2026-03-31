@@ -15,7 +15,7 @@ variables:
 
 # Optional: bridges (reference named bridges from config.yaml)
 bridges:
-  - bridge: "dcosson-{{ .Var.codename }}" # key in config.yaml's top-level bridges map
+  - bridge: "user-{{ .Var.codename }}" # key in config.yaml's top-level bridges map
     concierge: "concierge-{{ .Var.codename }}"
 
 # Required: agents
