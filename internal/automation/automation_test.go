@@ -218,29 +218,29 @@ func TestTrigger_MatchesEvent_SessionRestarted(t *testing.T) {
 }
 
 func TestEvalCondition_Empty(t *testing.T) {
-	if !EvalCondition(t.Context(), "", nil) {
+	if !EvalCondition(t.Context(), "", nil, "") {
 		t.Fatal("empty condition should return true")
 	}
 }
 
 func TestEvalCondition_TrueCmd(t *testing.T) {
-	if !EvalCondition(t.Context(), "true", nil) {
+	if !EvalCondition(t.Context(), "true", nil, "") {
 		t.Fatal("'true' should return true")
 	}
 }
 
 func TestEvalCondition_FalseCmd(t *testing.T) {
-	if EvalCondition(t.Context(), "false", nil) {
+	if EvalCondition(t.Context(), "false", nil, "") {
 		t.Fatal("'false' should return false")
 	}
 }
 
 func TestEvalCondition_EnvVar(t *testing.T) {
 	env := map[string]string{"H2_AGENT_STATE": "idle"}
-	if !EvalCondition(t.Context(), `test "$H2_AGENT_STATE" = "idle"`, env) {
+	if !EvalCondition(t.Context(), `test "$H2_AGENT_STATE" = "idle"`, env, "") {
 		t.Fatal("expected condition to pass with env var")
 	}
-	if EvalCondition(t.Context(), `test "$H2_AGENT_STATE" = "active"`, env) {
+	if EvalCondition(t.Context(), `test "$H2_AGENT_STATE" = "active"`, env, "") {
 		t.Fatal("expected condition to fail with wrong env var value")
 	}
 }

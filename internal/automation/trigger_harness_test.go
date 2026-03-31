@@ -231,7 +231,7 @@ func (f *failingEnqueuer) getMessages() []enqueuedMsg {
 // prevent subsequent firings and that FireCount still increments.
 func TestFault_ActionFailureOnRepeatingTrigger(t *testing.T) {
 	failEnq := &failingEnqueuer{failOnN: 2} // fail on 2nd firing
-	runner := NewActionRunner(failEnq, nil)
+	runner := NewActionRunner(failEnq, nil, "")
 	clock := newMockClock(time.Now())
 	te := NewTriggerEngine(runner)
 	te.SetClock(clock)
@@ -480,7 +480,7 @@ func BenchmarkProcessEvent_1000Triggers(b *testing.B) {
 func benchmarkProcessEventN(b *testing.B, n int) {
 	clock := newMockClock(time.Now())
 	enq := &mockEnqueuer{}
-	runner := NewActionRunner(enq, nil)
+	runner := NewActionRunner(enq, nil, "")
 	te := NewTriggerEngine(runner)
 	te.SetClock(clock)
 
@@ -521,7 +521,7 @@ func BenchmarkCooldownCheckOverhead(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			clock := newMockClock(time.Now())
 			enq := &mockEnqueuer{}
-			runner := NewActionRunner(enq, nil)
+			runner := NewActionRunner(enq, nil, "")
 			te := NewTriggerEngine(runner)
 			te.SetClock(clock)
 			te.Add(&Trigger{
@@ -538,7 +538,7 @@ func BenchmarkCooldownCheckOverhead(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			clock := newMockClock(time.Now())
 			enq := &mockEnqueuer{}
-			runner := NewActionRunner(enq, nil)
+			runner := NewActionRunner(enq, nil, "")
 			te := NewTriggerEngine(runner)
 			te.SetClock(clock)
 			te.Add(&Trigger{
@@ -559,7 +559,7 @@ func BenchmarkExpiryReaping(b *testing.B) {
 	baseTime := time.Now()
 	clock := newMockClock(baseTime.Add(2 * time.Hour)) // well past expiry
 	enq := &mockEnqueuer{}
-	runner := NewActionRunner(enq, nil)
+	runner := NewActionRunner(enq, nil, "")
 	te := NewTriggerEngine(runner)
 	te.SetClock(clock)
 

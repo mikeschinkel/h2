@@ -165,7 +165,7 @@ var baseTime = time.Date(2026, 3, 20, 12, 0, 0, 0, time.UTC)
 
 func newFakeScheduleEngine() (*ScheduleEngine, *mockEnqueuer, *fakeClock) {
 	enq := &mockEnqueuer{}
-	runner := NewActionRunner(enq, nil)
+	runner := NewActionRunner(enq, nil, "")
 	clk := newFakeClock(baseTime)
 	se := NewScheduleEngine(runner, WithClock(clk))
 	return se, enq, clk

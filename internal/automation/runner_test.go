@@ -21,7 +21,7 @@ func (f *failEnqueuer) EnqueueMessage(string, string, string, message.Priority) 
 
 func TestActionRunner_MessageAction(t *testing.T) {
 	eq := &mockEnqueuer{}
-	r := NewActionRunner(eq, nil)
+	r := NewActionRunner(eq, nil, "")
 
 	err := r.Run(Action{Message: "hello", From: "h2-trigger", Priority: "idle"}, nil)
 	if err != nil {
@@ -45,7 +45,7 @@ func TestActionRunner_MessageAction(t *testing.T) {
 
 func TestActionRunner_MessageAction_DefaultFrom(t *testing.T) {
 	eq := &mockEnqueuer{}
-	r := NewActionRunner(eq, nil)
+	r := NewActionRunner(eq, nil, "")
 
 	err := r.Run(Action{Message: "nudge"}, nil)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestActionRunner_MessageAction_DefaultFrom(t *testing.T) {
 
 func TestActionRunner_MessageAction_BadPriority(t *testing.T) {
 	eq := &mockEnqueuer{}
-	r := NewActionRunner(eq, nil)
+	r := NewActionRunner(eq, nil, "")
 
 	err := r.Run(Action{Message: "hello", Priority: "bogus"}, nil)
 	if err == nil {
@@ -72,7 +72,7 @@ func TestActionRunner_MessageAction_BadPriority(t *testing.T) {
 }
 
 func TestActionRunner_MessageAction_EnqueueError(t *testing.T) {
-	r := NewActionRunner(&failEnqueuer{}, nil)
+	r := NewActionRunner(&failEnqueuer{}, nil, "")
 
 	err := r.Run(Action{Message: "hello"}, nil)
 	if err == nil {
@@ -82,7 +82,7 @@ func TestActionRunner_MessageAction_EnqueueError(t *testing.T) {
 
 func TestActionRunner_ExecAction_Success(t *testing.T) {
 	eq := &mockEnqueuer{}
-	r := NewActionRunner(eq, nil)
+	r := NewActionRunner(eq, nil, "")
 
 	err := r.Run(Action{Exec: "true"}, nil)
 	if err != nil {
@@ -93,7 +93,7 @@ func TestActionRunner_ExecAction_Success(t *testing.T) {
 
 func TestActionRunner_ExecAction_Failure(t *testing.T) {
 	eq := &mockEnqueuer{}
-	r := NewActionRunner(eq, nil)
+	r := NewActionRunner(eq, nil, "")
 
 	err := r.Run(Action{Exec: "false"}, nil)
 	if err != nil {
@@ -104,7 +104,7 @@ func TestActionRunner_ExecAction_Failure(t *testing.T) {
 
 func TestActionRunner_ExecAction_Async(t *testing.T) {
 	eq := &mockEnqueuer{}
-	r := NewActionRunner(eq, nil)
+	r := NewActionRunner(eq, nil, "")
 
 	start := time.Now()
 	err := r.Run(Action{Exec: "sleep 0.1"}, nil)
@@ -121,7 +121,7 @@ func TestActionRunner_ExecAction_Async(t *testing.T) {
 func TestActionRunner_ExecAction_Environment(t *testing.T) {
 	eq := &mockEnqueuer{}
 	baseEnv := map[string]string{"H2_ACTOR": "test-agent"}
-	r := NewActionRunner(eq, baseEnv)
+	r := NewActionRunner(eq, baseEnv, "")
 
 	tmp := t.TempDir() + "/env.txt"
 	err := r.Run(Action{Exec: fmt.Sprintf(`echo "$H2_ACTOR:$H2_TRIGGER_ID" > %s`, tmp)},
@@ -143,7 +143,7 @@ func TestActionRunner_ExecAction_Environment(t *testing.T) {
 
 func TestActionRunner_ExecAction_ConcurrencyLimit(t *testing.T) {
 	eq := &mockEnqueuer{}
-	r := NewActionRunner(eq, nil)
+	r := NewActionRunner(eq, nil, "")
 
 	for i := 0; i < MaxConcurrentExec; i++ {
 		err := r.Run(Action{Exec: "sleep 1"}, nil)
@@ -166,7 +166,7 @@ func TestActionRunner_ExecAction_Timeout(t *testing.T) {
 	defer func() { ExecTimeout = orig }()
 
 	eq := &mockEnqueuer{}
-	r := NewActionRunner(eq, nil)
+	r := NewActionRunner(eq, nil, "")
 
 	err := r.Run(Action{Exec: "sleep 10"}, nil)
 	if err != nil {
@@ -185,7 +185,7 @@ func TestActionRunner_ExecAction_Timeout(t *testing.T) {
 func TestActionRunner_BaseEnvMerge(t *testing.T) {
 	eq := &mockEnqueuer{}
 	baseEnv := map[string]string{"A": "base", "B": "base"}
-	r := NewActionRunner(eq, baseEnv)
+	r := NewActionRunner(eq, baseEnv, "")
 
 	merged := r.MergeEnv(map[string]string{"B": "override", "C": "extra"})
 	if merged["A"] != "base" {

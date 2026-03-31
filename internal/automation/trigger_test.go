@@ -42,7 +42,7 @@ func (m *mockEnqueuer) getMessages() []enqueuedMsg {
 // helper to create a TriggerEngine with a mock enqueuer.
 func newTestTriggerEngine() (*TriggerEngine, *mockEnqueuer) {
 	enq := &mockEnqueuer{}
-	runner := NewActionRunner(enq, nil)
+	runner := NewActionRunner(enq, nil, "")
 	te := NewTriggerEngine(runner)
 	return te, enq
 }
@@ -475,7 +475,7 @@ func (t *mockTimer) Reset(d time.Duration) bool { return true }
 // newTestTriggerEngineWithClock creates a TriggerEngine with a mock clock.
 func newTestTriggerEngineWithClock(clock Clock) (*TriggerEngine, *mockEnqueuer) {
 	enq := &mockEnqueuer{}
-	runner := NewActionRunner(enq, nil)
+	runner := NewActionRunner(enq, nil, "")
 	te := NewTriggerEngine(runner)
 	te.SetClock(clock)
 	return te, enq

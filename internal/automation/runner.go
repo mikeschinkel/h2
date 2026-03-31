@@ -28,16 +28,18 @@ type MessageEnqueuer interface {
 type ActionRunner struct {
 	enqueuer MessageEnqueuer
 	baseEnv  map[string]string // base env vars inherited by all actions
+	workDir  string            // working directory for exec/condition commands
 
 	sem chan struct{} // semaphore for concurrent exec
 	wg  sync.WaitGroup
 }
 
 // NewActionRunner creates a runner with the given message enqueuer and base env.
-func NewActionRunner(enqueuer MessageEnqueuer, baseEnv map[string]string) *ActionRunner {
+func NewActionRunner(enqueuer MessageEnqueuer, baseEnv map[string]string, workDir string) *ActionRunner {
 	return &ActionRunner{
 		enqueuer: enqueuer,
 		baseEnv:  baseEnv,
+		workDir:  workDir,
 		sem:      make(chan struct{}, MaxConcurrentExec),
 	}
 }
@@ -96,6 +98,7 @@ func (r *ActionRunner) runExec(action Action, extraEnv map[string]string) error 
 
 		cmd := exec.CommandContext(ctx, "sh", "-c", action.Exec)
 		cmd.Env = buildFullEnv(env)
+		cmd.Dir = r.workDir
 		cmd.Stdout = os.Stdout // TODO: route to activity log
 		cmd.Stderr = os.Stderr
 
@@ -105,6 +108,9 @@ func (r *ActionRunner) runExec(action Action, extraEnv map[string]string) error 
 	}()
 	return nil
 }
+
+// WorkDir returns the configured working directory for commands.
+func (r *ActionRunner) WorkDir() string { return r.workDir }
 
 // MergeEnv combines base env with extra env. Extra overrides base.
 // Exported so that trigger/schedule engines can build condition env.

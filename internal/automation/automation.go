@@ -245,12 +245,13 @@ func (t *Trigger) MatchesEvent(evt monitor.AgentEvent) bool {
 // exits 0. If the condition is empty, returns true. The env map provides
 // additional environment variables overlaid on top of the inherited process
 // environment.
-func EvalCondition(ctx context.Context, condition string, env map[string]string) bool {
+func EvalCondition(ctx context.Context, condition string, env map[string]string, workDir string) bool {
 	if condition == "" {
 		return true
 	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", condition)
 	cmd.Env = buildFullEnv(env)
+	cmd.Dir = workDir
 	return cmd.Run() == nil
 }
 

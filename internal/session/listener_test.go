@@ -63,7 +63,7 @@ func newTestDaemonWithEngines(t *testing.T) *Daemon {
 	})
 	s.VT = &virtualterminal.VT{}
 
-	runner := automation.NewActionRunner(&noopEnqueuer{}, nil)
+	runner := automation.NewActionRunner(&noopEnqueuer{}, nil, "")
 	return &Daemon{
 		Session:        s,
 		TriggerEngine:  automation.NewTriggerEngine(runner),

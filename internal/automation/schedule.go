@@ -166,7 +166,7 @@ func (se *ScheduleEngine) handleFiring(as *activeSchedule) {
 	// Merge runner's base env (H2_ACTOR, H2_ROLE, etc.) into condition env.
 	condEnv := se.runner.MergeEnv(env)
 	condCtx, cancel := context.WithTimeout(context.Background(), DefaultConditionTimeout)
-	condPass := EvalCondition(condCtx, s.Condition, condEnv)
+	condPass := EvalCondition(condCtx, s.Condition, condEnv, se.runner.WorkDir())
 	cancel()
 
 	shouldRun, shouldRemove := evalConditionMode(s.ConditionMode, condPass, s.Condition == "")

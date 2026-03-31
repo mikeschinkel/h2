@@ -152,7 +152,7 @@ func RunDaemon(sessionDir string, rc *config.RuntimeConfig, resume bool) error {
 	}
 
 	enqueuer := &sessionEnqueuer{queue: s.Queue, agentName: rc.AgentName}
-	runner := automation.NewActionRunner(enqueuer, baseEnv)
+	runner := automation.NewActionRunner(enqueuer, baseEnv, rc.CWD)
 	triggerEngine := automation.NewTriggerEngine(runner, stateProvider)
 	scheduleEngine := automation.NewScheduleEngine(runner, automation.WithStateProvider(stateProvider))
 

@@ -161,7 +161,7 @@ func (te *TriggerEngine) evalAndFire(ctx context.Context, t *Trigger, evt monito
 	condCtx, cancel := context.WithTimeout(ctx, DefaultConditionTimeout)
 	defer cancel()
 	condEnv := te.runner.MergeEnv(env)
-	if !EvalCondition(condCtx, t.Condition, condEnv) {
+	if !EvalCondition(condCtx, t.Condition, condEnv, te.runner.WorkDir()) {
 		return
 	}
 
